@@ -6,6 +6,9 @@
   "types": "./types/index.ts",
   "exports": {
     ".": "./types/index.ts",
-    "./types/*": "./types/*.ts"
+    "./types/*": "./types/*.ts",
+    "./constants/*": "./constants/*.ts",
+    "./utils/*": "./utils/*.ts",
+    "./export/*": "./export/*.ts"
   }
 }

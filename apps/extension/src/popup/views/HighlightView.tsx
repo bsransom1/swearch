@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { analyzeHighlight, type HighlightAnalysis } from "../../lib/claude";
-import { appendToGoogleDoc, formatHighlightForExport } from "../../lib/google-docs";
+import HighlightAnalysisFeedback from "../components/HighlightAnalysisFeedback";
+import { buildHighlightExportBlocks } from "@swearch/shared/export/highlight-doc-blocks";
+import {
+  appendBlocksToGoogleDoc,
+  resolveLinkedDocId,
+} from "../../lib/google-docs";
 import { findRelatedPapers, buildSearchQueryFromAnalysis } from "../../lib/semantic-scholar";
 import { storage } from "../../lib/storage";
 import { supabase } from "../../lib/supabase";
@@ -18,6 +23,7 @@ export default function HighlightView({ onBack }: Props) {
   const [recommendations, setRecommendations] = useState<any[]>([]);
   const [status, setStatus] = useState<Status>("analyzing");
   const [exportStatus, setExportStatus] = useState<ExportStatus>("idle");
+  const [exportError, setExportError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedHighlightId, setSavedHighlightId] = useState<string | null>(null);
 
@@ -30,17 +36,16 @@ export default function HighlightView({ onBack }: Props) {
         "currentProjectDocId",
       ]);
 
-      const local = await new Promise<any>((resolve) =>
-        chrome.storage.local.get(["pendingHighlight"], resolve)
-      );
+      const { pendingAction } = await storage.get(["pendingAction"]);
 
-      if (!local.pendingHighlight) {
-        setError("No highlight captured. Highlight text on a research paper first.");
+      if (!pendingAction || pendingAction.type !== "summarize") {
+        setError("Use right-click → Swearch → Summarize selection on highlighted text.");
         setStatus("error");
         return;
       }
 
-      setHighlight(local.pendingHighlight);
+      const payload = pendingAction.payload;
+      setHighlight(payload);
 
       if (!stored.currentProjectId) {
         setError("No active project selected. Set one in Settings.");
@@ -50,9 +55,9 @@ export default function HighlightView({ onBack }: Props) {
 
       try {
         const result = await analyzeHighlight({
-          highlightText: local.pendingHighlight.selectedText,
-          paperTitle: local.pendingHighlight.paperTitle,
-          paperUrl: local.pendingHighlight.paperUrl,
+          highlightText: payload.selectedText,
+          paperTitle: payload.paperTitle,
+          paperUrl: payload.paperUrl,
           projectContext: stored.currentProjectContext || "",
           projectName: stored.currentProjectName || "Research Project",
         });
@@ -61,18 +66,16 @@ export default function HighlightView({ onBack }: Props) {
         setStatus("done");
 
         // Persist to database and get the saved highlight ID for export tracking
-        const id = await saveHighlightToDb(local.pendingHighlight, result, stored);
+        const id = await saveHighlightToDb(payload, result, stored);
         setSavedHighlightId(id);
 
         // Fetch related papers asynchronously — don't block UI
-        const query = buildSearchQueryFromAnalysis(result, local.pendingHighlight.paperTitle);
+        const query = buildSearchQueryFromAnalysis(result, payload.paperTitle);
         findRelatedPapers(query, 3)
           .then(setRecommendations)
           .catch((err) => console.warn("Recommendations failed:", err));
 
-        // Clear pending highlight and badge
-        await storage.remove(["pendingHighlight"]);
-        chrome.action.setBadgeText({ text: "" });
+        await storage.remove(["pendingAction"]);
       } catch (e: any) {
         setError(e.message || "Analysis failed");
         setStatus("error");
@@ -145,15 +148,19 @@ export default function HighlightView({ onBack }: Props) {
   async function handleExport() {
     if (!analysis || !highlight) return;
 
-    const stored = await storage.get(["currentProjectDocId"]);
-    if (!stored.currentProjectDocId) {
+    setExportError(null);
+    const docId = await resolveLinkedDocId();
+    if (!docId) {
       setExportStatus("error");
+      setExportError(
+        "No Google Doc linked. Open Settings, connect Google Drive, pick a doc, and save."
+      );
       return;
     }
 
     setExportStatus("exporting");
     try {
-      const formatted = formatHighlightForExport({
+      const blocks = buildHighlightExportBlocks({
         paperTitle: highlight.paperTitle,
         paperUrl: highlight.paperUrl,
         highlightText: highlight.selectedText,
@@ -161,10 +168,9 @@ export default function HighlightView({ onBack }: Props) {
         timestamp: new Date().toLocaleString(),
       });
 
-      await appendToGoogleDoc(stored.currentProjectDocId, formatted);
+      await appendBlocksToGoogleDoc(docId, blocks);
       setExportStatus("done");
 
-      // TODO: Update exported_to_google_doc flag on highlight record after successful export
       if (savedHighlightId) {
         await supabase
           .from("highlights")
@@ -177,6 +183,7 @@ export default function HighlightView({ onBack }: Props) {
     } catch (e: any) {
       console.error("Export failed:", e);
       setExportStatus("error");
+      setExportError(e.message || "Export failed");
     }
   }
 
@@ -226,36 +233,7 @@ export default function HighlightView({ onBack }: Props) {
       {/* Analysis results */}
       {status === "done" && analysis && (
         <>
-          <div className="flex flex-col gap-2">
-            <Section label="Summary" content={analysis.summary} />
-            {analysis.findings && (
-              <Section label="Key Finding" content={analysis.findings} />
-            )}
-            {analysis.relevance && (
-              <Section label="Relevance to Project" content={analysis.relevance} accent />
-            )}
-            {analysis.methodology && (
-              <Section label="Methodology" content={analysis.methodology} />
-            )}
-            {analysis.limitations && (
-              <Section label="Limitations" content={analysis.limitations} />
-            )}
-            {analysis.sample_size && (
-              <Section label="Sample Size" content={analysis.sample_size} />
-            )}
-            {analysis.tags.length > 0 && (
-              <div className="flex gap-1 flex-wrap">
-                {analysis.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="px-2 py-0.5 bg-surface-2 rounded text-xs text-text-tertiary"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
+          <HighlightAnalysisFeedback analysis={analysis} />
 
           {/* Export */}
           <button
@@ -268,6 +246,12 @@ export default function HighlightView({ onBack }: Props) {
             {exportStatus === "done" && "✓ Added to Doc"}
             {exportStatus === "error" && "Export failed — retry"}
           </button>
+
+          {exportError && (
+            <p className="text-xs text-red-400 bg-red-950 border border-red-900 rounded-lg px-3 py-2">
+              {exportError}
+            </p>
+          )}
 
           {/* Related papers */}
           {recommendations.length > 0 && (
@@ -296,31 +280,6 @@ export default function HighlightView({ onBack }: Props) {
           )}
         </>
       )}
-    </div>
-  );
-}
-
-function Section({
-  label,
-  content,
-  accent = false,
-}: {
-  label: string;
-  content: string;
-  accent?: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-lg p-3 border ${
-        accent
-          ? "bg-accent-muted border-accent"
-          : "bg-surface-1 border-border-subtle"
-      }`}
-    >
-      <p className={`text-xs mb-1 ${accent ? "text-indigo-400" : "text-text-tertiary"}`}>
-        {label}
-      </p>
-      <p className="text-sm text-text-primary">{content}</p>
     </div>
   );
 }

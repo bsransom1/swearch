@@ -50,6 +50,8 @@ For the web app (`apps/web/.env.local`):
 ```
 NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key from supabase status>
+NEXT_PUBLIC_EXTENSION_ID=<extension id from chrome://extensions>
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
 For the extension (`apps/extension/.env.local`):
@@ -57,6 +59,7 @@ For the extension (`apps/extension/.env.local`):
 VITE_SUPABASE_URL=http://localhost:54321
 VITE_SUPABASE_ANON_KEY=<anon key from supabase status>
 VITE_GOOGLE_CLIENT_ID=<your google oauth client id>
+VITE_WEB_APP_ORIGINS=http://localhost:3000
 ```
 
 ### 6. Google OAuth setup
@@ -68,6 +71,41 @@ VITE_GOOGLE_CLIENT_ID=<your google oauth client id>
    - Chrome Extension for `chrome.identity` (add your extension ID)
 4. Copy the client ID into `VITE_GOOGLE_CLIENT_ID` and update `manifest.json`
 5. Add the client ID + secret to your Supabase project under Authentication → Providers → Google
+
+**Important:** You need **two separate** OAuth clients:
+- **Web application** → Supabase Google provider (Swearch login)
+- **Chrome Extension** → `VITE_GOOGLE_CLIENT_ID` (Drive/Docs export via `chrome.identity`)
+
+### 6c. Google Docs export (extension)
+
+Export does **not** use Supabase auth or Next.js middleware. The extension calls Google APIs directly with `chrome.identity.getAuthToken`.
+
+1. In Google Cloud Console, enable **Google Drive API** and **Google Docs API**
+2. Create an OAuth client of type **Chrome Extension** (not Web)
+3. Add your extension ID from `chrome://extensions` to that credential
+4. Put the Chrome Extension client ID in `apps/extension/.env.local` as `VITE_GOOGLE_CLIENT_ID`
+5. Rebuild and reload the extension (`pnpm build:extension`)
+6. In the extension popup → **Settings** → **Connect Google Drive** → **Load my Google Docs** → pick a doc → **Save**
+
+If export fails with "bad client id", the extension ID in Google Cloud does not match the loaded extension.
+
+The web app and extension share one Supabase session. Either surface can sign in
+(email/password or Google) and the session is mirrored to the other:
+
+- web -> extension uses `chrome.runtime.sendMessage` (requires `NEXT_PUBLIC_EXTENSION_ID` and the extension's `externally_connectable` matches)
+- extension -> web uses an auth-sync content script that pushes the session into the page
+
+To enable Google sign-in inside the extension, add the extension's redirect URL to
+Supabase under Authentication → URL Configuration → Redirect URLs:
+
+```
+https://<extension-id>.chromiumapp.org/*
+```
+
+The `<extension-id>` is shown at `chrome://extensions` after loading the unpacked
+build. For a stable ID across reloads, add a `key` field to `manifest.json`
+(generate a key pair once and reuse the public key). Keep the existing web
+callback `http://localhost:3000/auth/callback` (plus your production URL) too.
 
 ### 7. Run
 
@@ -96,8 +134,9 @@ pnpm build:extension
 
 ## TODO (Phase 2)
 
-- [ ] Google OAuth for extension via `chrome.identity.launchWebAuthFlow`
-- [ ] Token refresh in service worker
+- [x] Google OAuth for extension via `chrome.identity.launchWebAuthFlow`
+- [x] Token refresh in service worker
+- [x] Unified web + extension session sync
 - [ ] Google Doc cached text refresh (check Drive API `modifiedTime`)
 - [ ] Semantic Scholar rate limit retry with backoff
 - [ ] Supabase Realtime subscriptions for live web app updates

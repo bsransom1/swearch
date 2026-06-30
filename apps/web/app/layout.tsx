@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import AuthSyncProvider from "@/components/auth/auth-sync-provider";
 
 export const metadata: Metadata = {
   title: "Swearch — Research Condensation",
@@ -9,7 +10,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AuthSyncProvider />
+        {children}
+      </body>
     </html>
   );
 }

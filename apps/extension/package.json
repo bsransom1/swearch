@@ -4,15 +4,19 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite build --watch",
-    "build": "vite build",
+    "dev": "vite build --watch & vite build --config vite.panel.config.ts --watch",
+    "build": "rm -rf dist && vite build && vite build --config vite.panel.config.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@radix-ui/react-tabs": "^1.1.16",
     "@supabase/supabase-js": "^2.43.4",
     "@swearch/shared": "workspace:*",
+    "lucide-react": "^0.400.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",

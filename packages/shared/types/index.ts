@@ -1,4 +1,11 @@
 export type { Database, Json } from "./database";
+export type { HighlightAnalysis } from "./highlight-analysis";
+export {
+  extractJsonObject,
+  getAnalysisSections,
+  parseHighlightAnalysis,
+  HIGHLIGHT_ANALYSIS_SECTIONS,
+} from "./highlight-analysis";
 
 // Convenience row types
 import type { Database } from "./database";

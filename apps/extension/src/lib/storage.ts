@@ -1,3 +1,5 @@
+import type { PendingAction } from "@swearch/shared/constants/extension-actions";
+
 export interface ExtensionStorage {
   authToken?: string;
   refreshToken?: string;
@@ -7,13 +9,7 @@ export interface ExtensionStorage {
   currentProjectDocId?: string;
   currentProjectContext?: string;
   currentProjectContextAt?: number;
-  pendingHighlight?: {
-    selectedText: string;
-    paperTitle: string;
-    paperUrl: string;
-    paperDoi: string | null;
-    timestamp: string;
-  };
+  pendingAction?: PendingAction;
   recentPapers?: any[];
   lastSync?: number;
 }

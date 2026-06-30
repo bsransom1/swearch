@@ -1,4 +1,4 @@
-import type { HighlightAnalysis } from "./claude";
+import type { HighlightAnalysis } from "@swearch/shared/types/highlight-analysis";
 
 const API_BASE = "https://api.semanticscholar.org/graph/v1";
 

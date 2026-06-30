@@ -8,7 +8,8 @@
     "storage",
     "identity",
     "tabs",
-    "scripting"
+    "scripting",
+    "contextMenus"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -26,11 +27,19 @@
   },
   "content_scripts": [
     {
+      "matches": ["__WEB_APP_MATCHES__"],
+      "js": ["content/auth-sync.js"],
+      "run_at": "document_idle"
+    },
+    {
       "matches": ["<all_urls>"],
-      "js": ["content/content-script.js"],
+      "js": ["content/page-metadata.js"],
       "run_at": "document_idle"
     }
   ],
+  "externally_connectable": {
+    "matches": ["__WEB_APP_MATCHES__"]
+  },
   "action": {
     "default_popup": "src/popup/index.html",
     "default_icon": {

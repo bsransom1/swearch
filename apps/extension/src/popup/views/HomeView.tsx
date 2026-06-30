@@ -1,58 +1,161 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import HighlightCard from "../../components/HighlightCard";
 import { signOut } from "../../lib/auth";
+import { appendBlocksToGoogleDoc } from "../../lib/google-docs";
 import { supabase } from "../../lib/supabase";
 import { storage } from "../../lib/storage";
+import {
+  extractTagsFromSummary,
+  formatRelativeTime,
+  getWebAppUrl,
+} from "../../lib/utils";
+import { buildHighlightExportBlocks } from "@swearch/shared/export/highlight-doc-blocks";
+import {
+  parseHighlightAnalysis,
+  type HighlightAnalysis,
+} from "@swearch/shared/types/highlight-analysis";
 
 interface Props {
   user: any;
-  onHighlight: () => void;
   onSettings: () => void;
 }
 
-export default function HomeView({ user, onHighlight, onSettings }: Props) {
+interface StoredHighlight {
+  id: string;
+  highlight_text: string;
+  ai_summary: string | null;
+  ai_methodology: string | null;
+  ai_findings: string | null;
+  ai_limitations: string | null;
+  ai_relevance: string | null;
+  ai_sample_size: string | null;
+  exported_to_google_doc: boolean | null;
+  created_at: string | null;
+  papers_analyzed: {
+    paper_title: string;
+    paper_url: string;
+  } | null;
+}
+
+function highlightToAnalysis(h: StoredHighlight): HighlightAnalysis {
+  const parsed = h.ai_summary ? parseHighlightAnalysis(h.ai_summary) : null;
+  return {
+    summary: parsed?.summary || h.ai_summary || "",
+    methodology: h.ai_methodology ?? parsed?.methodology ?? null,
+    findings: h.ai_findings ?? parsed?.findings ?? null,
+    limitations: h.ai_limitations ?? parsed?.limitations ?? null,
+    relevance: h.ai_relevance ?? parsed?.relevance ?? null,
+    sample_size: h.ai_sample_size ?? parsed?.sample_size ?? null,
+    tags: parsed?.tags?.length ? parsed.tags : extractTagsFromSummary(h),
+  };
+}
+
+export default function HomeView({ onSettings }: Props) {
   const [project, setProject] = useState<any>(null);
-  const [recentHighlights, setRecentHighlights] = useState<any[]>([]);
-  const [hasPending, setHasPending] = useState(false);
+  const [recentHighlights, setRecentHighlights] = useState<StoredHighlight[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadData = useCallback(async () => {
+    const stored = await storage.get(["currentProjectId"]);
+
+    if (!stored.currentProjectId) {
+      setProject(null);
+      setRecentHighlights([]);
+      return;
+    }
+
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const [{ data: projectData }, { data: highlights }] = await Promise.all([
+      supabase
+        .from("research_projects")
+        .select("*, papers_analyzed(count)")
+        .eq("id", stored.currentProjectId)
+        .single(),
+      supabase
+        .from("highlights")
+        .select("*, papers_analyzed(paper_title, paper_url)")
+        .eq("project_id", stored.currentProjectId)
+        .gte("created_at", sevenDaysAgo)
+        .order("created_at", { ascending: false })
+        .limit(10),
+    ]);
+
+    setProject(projectData);
+    setRecentHighlights((highlights as StoredHighlight[]) || []);
+  }, []);
 
   useEffect(() => {
     async function load() {
-      const stored = await storage.get(["currentProjectId", "currentProjectName", "currentProjectDocId"]);
-
-      if (stored.currentProjectId) {
-        const { data } = await supabase
-          .from("research_projects")
-          .select("*, papers_analyzed(count)")
-          .eq("id", stored.currentProjectId)
-          .single();
-        setProject(data);
-
-        const { data: highlights } = await supabase
-          .from("highlights")
-          .select("*, papers_analyzed(paper_title)")
-          .eq("project_id", stored.currentProjectId)
-          .order("created_at", { ascending: false })
-          .limit(3);
-        setRecentHighlights(highlights || []);
-      }
-
-      chrome.storage.local.get(["pendingHighlight"], (result) => {
-        setHasPending(!!result.pendingHighlight);
-      });
-
+      setLoading(true);
+      await loadData();
       setLoading(false);
     }
     load();
-  }, []);
+  }, [loadData]);
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  }
 
   async function handleSignOut() {
     await signOut();
     window.location.reload();
   }
 
+  async function handleExportHighlight(highlightId: string) {
+    const highlight = recentHighlights.find((h) => h.id === highlightId);
+    const docId = project?.google_doc_id;
+    if (!highlight || !docId) {
+      throw new Error("No Google Doc linked to this project.");
+    }
+
+    const analysis = highlightToAnalysis(highlight);
+    const blocks = buildHighlightExportBlocks({
+      paperTitle: highlight.papers_analyzed?.paper_title || "Unknown paper",
+      paperUrl: highlight.papers_analyzed?.paper_url || "",
+      highlightText: highlight.highlight_text,
+      analysis,
+      timestamp: highlight.created_at
+        ? new Date(highlight.created_at).toLocaleString()
+        : new Date().toLocaleString(),
+    });
+
+    await appendBlocksToGoogleDoc(docId, blocks);
+
+    await supabase
+      .from("highlights")
+      .update({
+        exported_to_google_doc: true,
+        google_doc_exported_at: new Date().toISOString(),
+      })
+      .eq("id", highlightId);
+
+    setRecentHighlights((prev) =>
+      prev.map((h) =>
+        h.id === highlightId ? { ...h, exported_to_google_doc: true } : h
+      )
+    );
+  }
+
+  async function handleCopyHighlight(text: string) {
+    await navigator.clipboard.writeText(text);
+  }
+
+  async function handleDeleteHighlight(highlightId: string) {
+    const { error } = await supabase.from("highlights").delete().eq("id", highlightId);
+    if (error) throw new Error(error.message);
+
+    setRecentHighlights((prev) => prev.filter((h) => h.id !== highlightId));
+  }
+
+  const webAppUrl = getWebAppUrl();
+
   return (
     <div className="flex flex-col gap-0">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 bg-accent rounded-md flex items-center justify-center">
@@ -76,22 +179,7 @@ export default function HomeView({ user, onHighlight, onSettings }: Props) {
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 p-4">
-        {/* Pending highlight banner */}
-        {hasPending && (
-          <button
-            onClick={onHighlight}
-            className="w-full flex items-center gap-2 bg-accent-muted border border-accent rounded-lg px-3 py-2 text-left hover:bg-indigo-900 transition-colors"
-          >
-            <span className="text-lg">✨</span>
-            <div>
-              <p className="text-xs font-medium text-accent">Highlight ready to analyze</p>
-              <p className="text-xs text-text-tertiary">Click to view and export</p>
-            </div>
-          </button>
-        )}
-
-        {/* Active project */}
+      <div className="flex flex-col gap-4 p-4">
         <div className="bg-surface-1 border border-border-subtle rounded-lg p-3">
           <p className="text-xs text-text-tertiary mb-1">Active project</p>
           {loading ? (
@@ -99,10 +187,15 @@ export default function HomeView({ user, onHighlight, onSettings }: Props) {
           ) : project ? (
             <>
               <p className="text-sm font-medium text-text-primary">{project.name}</p>
-              {project.google_doc_title && (
-                <p className="text-xs text-text-tertiary mt-0.5 truncate">
-                  📄 {project.google_doc_title}
-                </p>
+              {project.google_doc_title && project.google_doc_id && (
+                <a
+                  href={`https://docs.google.com/document/d/${project.google_doc_id}/edit`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-text-secondary hover:text-accent mt-1.5 inline-block truncate max-w-full transition-colors"
+                >
+                  {project.google_doc_title}
+                </a>
               )}
             </>
           ) : (
@@ -115,35 +208,79 @@ export default function HomeView({ user, onHighlight, onSettings }: Props) {
           )}
         </div>
 
-        {/* Recent highlights */}
-        {recentHighlights.length > 0 && (
-          <div>
-            <p className="text-xs text-text-tertiary mb-2">Recent highlights</p>
-            <div className="flex flex-col gap-1.5">
-              {recentHighlights.map((h) => (
+        <section>
+          <div className="flex items-center justify-between mb-2 sticky top-0 bg-surface-0 py-1 z-10">
+            <p className="text-xs text-text-tertiary">Recent highlights</p>
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={loading || refreshing}
+              className="text-xs text-text-tertiary hover:text-text-secondary transition-colors disabled:opacity-50"
+              aria-label="Refresh highlights"
+            >
+              {refreshing ? "Refreshing…" : "↻ Refresh"}
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="space-y-2">
+              {[0, 1, 2].map((i) => (
                 <div
-                  key={h.id}
-                  className="bg-surface-1 border border-border-subtle rounded-lg p-2"
-                >
-                  <p className="text-xs text-text-primary line-clamp-2">
-                    "{h.highlight_text}"
-                  </p>
-                  <p className="text-xs text-text-tertiary mt-0.5 truncate">
-                    {h.papers_analyzed?.paper_title || "Unknown paper"}
-                  </p>
-                </div>
+                  key={i}
+                  className="h-20 bg-surface-1 border border-border-subtle rounded-lg animate-pulse"
+                />
               ))}
             </div>
-          </div>
-        )}
-
-        {!hasPending && recentHighlights.length === 0 && !loading && (
-          <div className="text-center py-6">
-            <p className="text-sm text-text-tertiary">
-              Highlight text on any research paper to get started.
+          ) : !project ? (
+            <p className="text-xs text-text-tertiary text-center py-4">
+              Select a project in Settings to see recent highlights.
             </p>
-          </div>
-        )}
+          ) : recentHighlights.length > 0 ? (
+            <div className="space-y-2">
+              {recentHighlights.map((h) => {
+                const analysis = highlightToAnalysis(h);
+                return (
+                  <HighlightCard
+                    key={h.id}
+                    id={h.id}
+                    highlightText={h.highlight_text}
+                    paperTitle={h.papers_analyzed?.paper_title || "Unknown paper"}
+                    paperUrl={h.papers_analyzed?.paper_url || ""}
+                    tags={analysis.tags}
+                    summary={analysis.summary || undefined}
+                    relevance={analysis.relevance ?? undefined}
+                    methodology={analysis.methodology ?? undefined}
+                    findings={analysis.findings ?? undefined}
+                    limitations={analysis.limitations ?? undefined}
+                    sampleSize={analysis.sample_size ?? undefined}
+                    timestamp={
+                      h.created_at ? formatRelativeTime(h.created_at) : "Unknown"
+                    }
+                    isExported={!!h.exported_to_google_doc}
+                    linkedDocId={project?.google_doc_id ?? undefined}
+                    onExport={handleExportHighlight}
+                    onCopy={handleCopyHighlight}
+                    onDelete={handleDeleteHighlight}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-center py-6 px-2">
+              <p className="text-sm text-text-tertiary">
+                No highlights yet. Use the context menu to capture text from research papers.
+              </p>
+              <a
+                href={`${webAppUrl}/dashboard`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block mt-3 text-xs text-accent hover:underline"
+              >
+                View all highlights in web app ↗
+              </a>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );

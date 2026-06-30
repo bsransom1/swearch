@@ -1,0 +1,71 @@
+/* Panel shell + connector arrow (Shadow DOM) */
+
+.swearch-panel {
+  position: relative;
+  width: 100%;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--surface-0, #ffffff);
+  border: 1px solid var(--border-default, #d0d0d0);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+/* TODO: Tune connector size/opacity after testing on ScienceDirect etc. */
+.swearch-panel-connector {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background-color: var(--surface-0, #ffffff);
+  border: 1px solid var(--border-default, #d0d0d0);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.swearch-panel-connector-bottom {
+  bottom: -6px;
+  border-top: none;
+  border-left: none;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.swearch-panel-connector-top {
+  top: -6px;
+  border-bottom: none;
+  border-right: none;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.swearch-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle, #e5e5e5);
+  background-color: var(--surface-1, #f5f5f5);
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.swearch-panel-header:active {
+  cursor: grabbing;
+}
+
+.swearch-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.swearch-panel-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.swearch-panel-content::-webkit-scrollbar-thumb {
+  background-color: var(--border-default, #d0d0d0);
+  border-radius: 3px;
+}

@@ -5,25 +5,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
-
-  try {
-    const {
-      highlightText,
-      paperTitle,
-      paperUrl,
-      projectContext,
-      projectName,
-    } = await req.json();
-
-    const client = new Anthropic({
-      apiKey: Deno.env.get("ANTHROPIC_API_KEY"),
-    });
-
-    const systemPrompt = `You are a research assistant helping a researcher extract structured insights from academic papers.
+const FULL_SYSTEM_PROMPT = (projectName: string, projectContext?: string) =>
+  `You are a research assistant helping a researcher extract structured insights from academic papers.
 
 The researcher's active project is: "${projectName}"
 
@@ -40,9 +23,78 @@ When analyzing a highlight, return a JSON object with exactly these fields:
 
 Respond ONLY with valid JSON. No preamble, no markdown, no explanation.`;
 
+const CLAIMS_SYSTEM_PROMPT = `You are a research assistant extracting key claims, assertions, and arguments from an academic excerpt. These include:
+- Factual claims about findings, methods, or data
+- Argumentative claims or positions the authors defend
+- Assertions about implications, significance, or contributions
+- Central arguments being made in this text
+
+Return a JSON object with exactly one field:
+- claims: An array of 2-5 clear, standalone statements from the excerpt, each as a single sentence. Prioritize claims that represent the core argument or contribution of the text.
+
+Respond ONLY with valid JSON. No preamble, no markdown.`;
+
+function extractJsonObject(text: string): Record<string, unknown> | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
+  const candidates = fenced ? [fenced[1].trim(), trimmed] : [trimmed];
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // continue
+    }
+
+    const start = candidate.indexOf("{");
+    const end = candidate.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try {
+        const parsed = JSON.parse(candidate.slice(start, end + 1));
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          return parsed as Record<string, unknown>;
+        }
+      } catch {
+        // continue
+      }
+    }
+  }
+
+  return null;
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
+  try {
+    const {
+      highlightText,
+      paperTitle,
+      paperUrl,
+      projectContext,
+      projectName,
+      mode = "full",
+    } = await req.json();
+
+    const client = new Anthropic({
+      apiKey: Deno.env.get("ANTHROPIC_API_KEY"),
+    });
+
+    const isClaimsOnly = mode === "claims_only";
+    const systemPrompt = isClaimsOnly
+      ? CLAIMS_SYSTEM_PROMPT
+      : FULL_SYSTEM_PROMPT(projectName || "unspecified", projectContext);
+
     const message = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 1024,
+      max_tokens: isClaimsOnly ? 512 : 1024,
       system: systemPrompt,
       messages: [
         {
@@ -55,19 +107,22 @@ Respond ONLY with valid JSON. No preamble, no markdown, no explanation.`;
     const responseText =
       message.content[0].type === "text" ? message.content[0].text : "";
 
-    let parsed;
-    try {
-      parsed = JSON.parse(responseText);
-    } catch {
-      parsed = {
-        summary: responseText,
-        methodology: null,
-        findings: null,
-        limitations: null,
-        sample_size: null,
-        relevance: null,
-        tags: [],
-      };
+    let parsed = extractJsonObject(responseText);
+
+    if (!parsed) {
+      if (isClaimsOnly) {
+        parsed = { claims: [] };
+      } else {
+        parsed = {
+          summary: responseText.trim(),
+          methodology: null,
+          findings: null,
+          limitations: null,
+          sample_size: null,
+          relevance: null,
+          tags: [],
+        };
+      }
     }
 
     return new Response(JSON.stringify({ data: parsed }), {

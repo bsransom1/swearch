@@ -1,19 +1,29 @@
 {
   "name": "swearch",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
+    "dev": "bash scripts/dev.sh",
     "dev:web": "pnpm --filter web dev",
     "dev:extension": "pnpm --filter extension dev",
     "build:web": "pnpm --filter web build",
     "build:extension": "pnpm --filter extension build",
-    "db:start": "supabase start",
-    "db:migrate": "supabase db push",
-    "db:types": "supabase gen types typescript --local > packages/shared/types/database.ts",
-    "functions:deploy": "supabase functions deploy analyze-highlight",
-    "lint": "pnpm --recursive lint"
+    "db:start": "pnpm exec supabase start",
+    "db:migrate": "pnpm exec supabase db push",
+    "db:types": "pnpm exec supabase gen types typescript --local > packages/shared/types/database.ts",
+    "functions:deploy": "pnpm exec supabase functions deploy analyze-highlight --project-ref wqrwgragtiiptjakidwj",
+    "lint": "pnpm --recursive lint",
+    "test": "vitest run",
+    "test:auth": "vitest run tests/auth-config.test.ts tests/auth-bridge.integration.test.ts packages/shared/constants/auth-sync.test.ts",
+    "test:highlights": "vitest run packages/shared/types/highlight-analysis.test.ts packages/shared/export/highlight-doc-blocks.test.ts",
+    "test:auth:e2e": "bash scripts/test-auth-e2e.sh"
   },
   "devDependencies": {
-    "typescript": "^5.4.5"
+    "supabase": "^2.108.0",
+    "typescript": "^5.4.5",
+    "vitest": "^3.2.6"
   },
   "packageManager": "pnpm@11.9.0+sha512.bd682d5d03fe525ef7c9fd6780c6884d1e756ac4c9c9fe00c538782824310dcf90e3ddc4f53835f06dfaebd5085e41855e0bcbb3b60de2ac5bbab89e5036f03b"
 }

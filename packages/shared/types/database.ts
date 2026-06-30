@@ -55,6 +55,7 @@ export type Database = {
           paper_id: string
           project_id: string
           user_id: string
+          user_note: string | null
         }
         Insert: {
           ai_findings?: string | null
@@ -71,6 +72,7 @@ export type Database = {
           paper_id: string
           project_id: string
           user_id: string
+          user_note?: string | null
         }
         Update: {
           ai_findings?: string | null
@@ -87,6 +89,7 @@ export type Database = {
           paper_id?: string
           project_id?: string
           user_id?: string
+          user_note?: string | null
         }
         Relationships: [
           {
