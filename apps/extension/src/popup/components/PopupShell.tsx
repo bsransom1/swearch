@@ -9,7 +9,7 @@ interface PopupShellProps {
 export default function PopupShell({ children }: PopupShellProps) {
   return (
     <div
-      className="flex flex-col bg-surface-0 text-text-primary font-sans overflow-hidden"
+      className="flex flex-col bg-surface-bg text-text-primary font-sans overflow-hidden"
       style={{
         width: POPUP_WIDTH,
         height: POPUP_HEIGHT,

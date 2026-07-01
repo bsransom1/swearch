@@ -1,6 +1,6 @@
 import { useState, useRef, type KeyboardEvent } from "react";
 import { Send } from "lucide-react";
-import { BTN_PRIMARY, INPUT_FIELD } from "../../../lib/theme";
+import { BTN_PRIMARY, INPUT_FIELD_POPUP } from "../../../lib/theme";
 
 interface Props {
   onSend: (text: string) => void;
@@ -39,7 +39,7 @@ export default function ChatInput({
   }
 
   return (
-    <div className="border-t border-border-subtle p-3 flex-shrink-0">
+    <div className="border-t border-border-subtle px-4 py-3 flex-shrink-0 mt-auto">
       <div className="flex items-end gap-2">
         <textarea
           ref={textareaRef}
@@ -50,14 +50,14 @@ export default function ChatInput({
           placeholder={placeholder}
           rows={1}
           disabled={disabled}
-          className={`flex-1 resize-none disabled:opacity-60 ${INPUT_FIELD}`}
+          className={`flex-1 resize-none disabled:opacity-60 ${INPUT_FIELD_POPUP}`}
           style={{ minHeight: "40px" }}
         />
         <button
           type="button"
           onClick={handleSubmit}
           disabled={disabled || !value.trim()}
-          className={`flex-shrink-0 ${BTN_PRIMARY} px-3`}
+          className={`flex-shrink-0 ${BTN_PRIMARY} px-3 py-2.5`}
           aria-label="Send message"
         >
           <Send size={16} strokeWidth={2} />

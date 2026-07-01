@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { signInWithEmail, signInWithGoogle, signUpWithEmail } from "../../lib/auth";
 import { WEB_APP_ORIGINS } from "../../lib/auth-sync";
+import { BTN_PRIMARY } from "../../lib/theme";
 
 interface Props {
   onAuth: (user: any) => void;
@@ -127,7 +128,7 @@ export default function AuthView({ onAuth }: Props) {
         />
 
         {error && (
-          <p className="text-xs text-red-400 bg-red-950 border border-red-900 rounded-lg px-3 py-2">
+          <p className="text-xs text-error bg-error-50 border border-error/30 rounded-lg px-3 py-2">
             {error}
           </p>
         )}
@@ -135,9 +136,9 @@ export default function AuthView({ onAuth }: Props) {
         <button
           type="submit"
           disabled={loading}
-          className="w-full py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+          className={`w-full ${BTN_PRIMARY}`}
         >
-          {loading ? "..." : mode === "login" ? "Sign in" : "Create account"}
+          {loading ? "…" : mode === "login" ? "Sign in" : "Create account"}
         </button>
       </form>
 

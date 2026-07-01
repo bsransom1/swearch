@@ -52,6 +52,12 @@ export const USER_BUBBLE =
 export const ASSISTANT_BUBBLE =
   "max-w-[80%] rounded-lg px-3 py-2.5 text-sm bg-surface-1 border border-border-subtle text-text-primary shadow-tier-2";
 
+export const WELCOME_BUBBLE =
+  "max-w-full text-sm text-text-secondary leading-relaxed px-1";
+
+export const INPUT_FIELD_POPUP =
+  "bg-surface-0 border border-border-subtle rounded-md px-3 py-2.5 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent-50 transition-colors duration-150 disabled:opacity-60";
+
 export const ERROR_TEXT = "text-xs text-error flex items-start gap-2";
 
 export const SUCCESS_TEXT = "text-xs text-success flex items-center gap-2";
@@ -66,9 +72,12 @@ export const SECTION_CONTENT = "text-sm text-text-primary leading-relaxed whites
 export const TAG_PILL =
   "inline-flex items-center gap-1 px-2 py-1 rounded-full bg-surface-2 text-text-secondary text-xs border border-border-subtle";
 
+export const SUGGESTION_CHIP =
+  "inline-flex max-w-full text-left px-3 py-2 rounded-full bg-surface-1 border border-border-subtle text-text-secondary text-xs leading-snug shadow-tier-2 hover:bg-accent-50 hover:border-accent-200 hover:text-accent transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-accent/60 disabled:opacity-60 disabled:cursor-not-allowed";
+
 /** Tab list "track" + trigger pill (Part 4) */
 export const TABS_LIST =
-  "grid w-full grid-cols-2 bg-surface-1 rounded-lg p-1 gap-1";
+  "grid w-full grid-cols-2 flex-shrink-0 bg-surface-1 rounded-lg p-1 gap-1";
 
 export const TABS_TRIGGER =
-  "rounded-md px-3 py-2 text-sm font-medium text-text-secondary transition-colors duration-150 ease-out data-[state=active]:bg-accent data-[state=active]:text-white data-[state=active]:shadow-btn-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60";
+  "rounded-md px-3 py-2 text-sm font-medium text-center min-w-0 text-text-secondary transition-colors duration-150 ease-out data-[state=active]:bg-accent data-[state=active]:text-white data-[state=active]:shadow-btn-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60";

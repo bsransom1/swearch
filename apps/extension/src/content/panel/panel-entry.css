@@ -27,3 +27,18 @@
 *, *::before, *::after {
   box-sizing: border-box;
 }
+
+/* Mobile-native motion (Part 8) — duplicated here since Shadow DOM is style-isolated */
+@keyframes swearch-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.swearch-fade-in {
+  animation: swearch-fade-in 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}

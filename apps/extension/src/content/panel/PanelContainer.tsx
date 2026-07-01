@@ -116,14 +116,16 @@ export default function PanelContainer({
         <button
           type="button"
           onClick={onClose}
-          className="w-6 h-6 flex items-center justify-center text-text-tertiary hover:text-text-primary hover:bg-surface-3 rounded transition-colors flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-accent/60"
+          className="w-8 h-8 flex items-center justify-center text-text-tertiary hover:text-text-primary hover:bg-surface-3 rounded-md transition-colors duration-150 flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-accent/60"
           aria-label="Close panel"
         >
           <X size={16} strokeWidth={2} />
         </button>
       </div>
 
-      <div className="swearch-panel-content">{children}</div>
+      <div key={action} className="swearch-panel-content swearch-fade-in">
+        {children}
+      </div>
     </div>
   );
 }

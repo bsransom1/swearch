@@ -10,6 +10,7 @@ import {
 } from "../../lib/google-docs";
 import LinkedDocCard from "../components/LinkedDocCard";
 import GoogleDocPicker from "../components/GoogleDocPicker";
+import { BTN_PRIMARY } from "../../lib/theme";
 
 interface Props {
   onBack: () => void;
@@ -257,7 +258,7 @@ export default function SettingsView({ onBack }: Props) {
         </label>
 
         {docsError && !pickerOpen && (
-          <p className="text-xs text-red-400 mb-2 bg-red-950 border border-red-900 rounded-lg px-3 py-2">
+          <p className="text-xs text-error mb-2 bg-error-50 border border-error/30 rounded-lg px-3 py-2">
             {docsError}
           </p>
         )}
@@ -293,11 +294,12 @@ export default function SettingsView({ onBack }: Props) {
       </div>
 
       <button
+        type="button"
         onClick={handleSave}
         disabled={saving || !selectedProjectId}
-        className="w-full py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+        className={`w-full ${BTN_PRIMARY}`}
       >
-        {saving ? "Saving..." : saved ? "✓ Saved" : "Save settings"}
+        {saving ? "Saving…" : saved ? "✓ Saved" : "Save settings"}
       </button>
     </div>
   );

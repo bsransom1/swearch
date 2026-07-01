@@ -10,10 +10,13 @@ import { parseHighlightAnalysis } from "@swearch/shared/types/highlight-analysis
 import ChatHeader from "../components/chat/ChatHeader";
 import MessageList from "../components/chat/MessageList";
 import ChatInput from "../components/chat/ChatInput";
+import SuggestedQuestions from "../components/chat/SuggestedQuestions";
+import { SUGGESTED_QUESTIONS } from "../constants";
 import type { ChatMessage } from "../components/chat/MessageBubble";
 import HighlightCard from "../../components/HighlightCard";
 import { appendBlocksToGoogleDoc } from "../../lib/google-docs";
 import { SPINNER } from "../../lib/theme";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { buildHighlightExportBlocks } from "@swearch/shared/export/highlight-doc-blocks";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -367,84 +370,111 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
     setSessionHighlights((prev) => prev.filter((x) => x.id !== id));
   }
 
+  const showSuggestedQuestions = !messages.some((m) => m.role === "user");
+
   // ─── Render ───────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-full min-h-0 flex-col bg-surface-0 text-text-primary relative">
-      <ChatHeader
-        onSettings={onSettings}
-        activeProject={activeProject}
-        projectLoading={projectLoading}
-        onChangeProject={handleOpenProjectSwitcher}
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        onClearChat={handleClearChat}
-      />
-
-      {/* Project switcher dropdown */}
-      {showProjectSwitcher && (
-        <div className="absolute left-0 right-0 mx-3 bg-surface-2 border border-border-subtle rounded-lg shadow-2xl z-50 max-h-48 overflow-y-auto" style={{ top: 120 }}>
-          {allProjects.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-text-tertiary">Loading projects…</p>
-          ) : (
-            allProjects.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => handleSwitchProject(p.id)}
-                disabled={switchingProject}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-3 transition-colors disabled:opacity-60 ${
-                  p.id === activeProject?.id ? "text-accent font-medium" : "text-text-secondary"
-                }`}
-              >
-                {p.name}
-              </button>
-            ))
-          )}
-          <button
-            type="button"
-            onClick={() => setShowProjectSwitcher(false)}
-            className="w-full px-3 py-2 text-xs text-text-tertiary border-t border-border-subtle hover:bg-surface-3 transition-colors text-center"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-
-      {activeTab === "chat" && (
-        <>
-          <MessageList messages={messages} isThinking={isThinking} />
-
-          {/* Paper detection banner */}
-          {pageMetadata?.isLikelyPaper && (
-            <div className="mx-3 mb-2 px-3 py-2 bg-surface-2 border border-border-subtle rounded-lg shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex items-center justify-between flex-shrink-0">
-              <p className="text-xs text-text-secondary truncate flex-1 min-w-0 flex items-center gap-2">
-                <FileText size={14} strokeWidth={2} className="flex-shrink-0 text-text-tertiary" />
-                {pageMetadata.paperTitle}
-              </p>
-              <button
-                type="button"
-                onClick={handleFindRelatedPapers}
-                disabled={isThinking}
-                className="text-xs text-accent hover:text-accent-hover font-medium ml-2 flex-shrink-0 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-accent/60 rounded px-1"
-              >
-                Find related →
-              </button>
-            </div>
-          )}
-
-          <ChatInput onSend={handleSend} disabled={isThinking} />
-        </>
-      )}
-
-      {activeTab === "session" && (
-        <SessionHighlightsTab
-          highlights={sessionHighlights}
-          loading={sessionLoading}
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="relative flex flex-col min-h-0 flex-1 h-full bg-surface-0 border border-border-default rounded-xl shadow-tier-1 overflow-hidden">
+        <ChatHeader
+          onSettings={onSettings}
           activeProject={activeProject}
-          onExport={handleExportHighlight}
-          onDelete={handleDeleteHighlight}
+          projectLoading={projectLoading}
+          onChangeProject={handleOpenProjectSwitcher}
+          onClearChat={handleClearChat}
         />
-      )}
+
+        {/* Project switcher dropdown — top offset matches compact header (~88px) */}
+        {showProjectSwitcher && (
+          <div
+            className="swearch-popover-in absolute left-3 right-3 bg-surface-0 border border-border-default rounded-lg shadow-tier-1 z-50 max-h-48 overflow-y-auto"
+            style={{ top: 88 }}
+          >
+            {allProjects.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-text-tertiary">Loading projects…</p>
+            ) : (
+              allProjects.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => handleSwitchProject(p.id)}
+                  disabled={switchingProject}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-1 transition-colors duration-150 disabled:opacity-60 ${
+                    p.id === activeProject?.id ? "text-accent font-medium" : "text-text-secondary"
+                  }`}
+                >
+                  {p.name}
+                </button>
+              ))
+            )}
+            <button
+              type="button"
+              onClick={() => setShowProjectSwitcher(false)}
+              className="w-full px-3 py-2 text-xs text-text-tertiary border-t border-border-subtle hover:bg-surface-1 transition-colors duration-150 text-center"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => setActiveTab(v as Tab)}
+          className="flex flex-col flex-1 min-h-0 overflow-hidden px-4"
+        >
+          <TabsList className="mt-2 mb-2">
+            <TabsTrigger value="chat">Chat</TabsTrigger>
+            <TabsTrigger value="session">Session</TabsTrigger>
+          </TabsList>
+
+          <TabsContent
+            value="chat"
+            className="swearch-fade-in flex flex-col flex-1 min-h-0 h-0 overflow-hidden"
+          >
+            <MessageList messages={messages} isThinking={isThinking} />
+
+            {pageMetadata?.isLikelyPaper && (
+              <div className="mx-0 mb-2 px-3 py-2.5 bg-surface-1 border border-border-subtle rounded-lg shadow-tier-2 flex items-center justify-between flex-shrink-0">
+                <p className="text-xs text-text-secondary truncate flex-1 min-w-0 flex items-center gap-2">
+                  <FileText size={14} strokeWidth={2} className="flex-shrink-0 text-text-tertiary" />
+                  {pageMetadata.paperTitle}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleFindRelatedPapers}
+                  disabled={isThinking}
+                  className="text-xs text-accent hover:text-accent-hover font-medium ml-2 flex-shrink-0 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-accent/60 rounded px-1"
+                >
+                  Find related →
+                </button>
+              </div>
+            )}
+
+            {showSuggestedQuestions && (
+              <SuggestedQuestions
+                questions={SUGGESTED_QUESTIONS}
+                onSelect={handleSend}
+                disabled={isThinking}
+              />
+            )}
+
+            <ChatInput onSend={handleSend} disabled={isThinking} />
+          </TabsContent>
+
+          <TabsContent
+            value="session"
+            className="swearch-fade-in flex flex-col flex-1 min-h-0 h-0 overflow-hidden"
+          >
+            <SessionHighlightsTab
+              highlights={sessionHighlights}
+              loading={sessionLoading}
+              activeProject={activeProject}
+              onExport={handleExportHighlight}
+              onDelete={handleDeleteHighlight}
+            />
+          </TabsContent>
+        </Tabs>
+      </div>
     </div>
   );
 }
@@ -462,7 +492,7 @@ interface SessionTabProps {
 function SessionHighlightsTab({ highlights, loading, activeProject, onExport, onDelete }: SessionTabProps) {
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 min-h-0 flex items-center justify-center">
         <div className={SPINNER} />
       </div>
     );
@@ -470,7 +500,7 @@ function SessionHighlightsTab({ highlights, loading, activeProject, onExport, on
 
   if (highlights.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center p-4 text-center">
+      <div className="flex-1 min-h-0 flex items-center justify-center p-4 text-center">
         <p className="text-sm text-text-tertiary leading-relaxed">
           No highlights captured this session yet.
           <br />
@@ -481,7 +511,7 @@ function SessionHighlightsTab({ highlights, loading, activeProject, onExport, on
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-3 space-y-2">
+    <div className="flex-1 min-h-0 overflow-y-auto py-1 space-y-3">
       {highlights.map((h) => {
         const parsed = h.ai_summary ? parseHighlightAnalysis(h.ai_summary) : null;
         const analysis = {

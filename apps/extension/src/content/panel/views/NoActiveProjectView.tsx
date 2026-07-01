@@ -48,7 +48,7 @@ export default function NoActiveProjectView({ onProjectSet }: Props) {
       </div>
 
       {error && (
-        <p className="text-xs text-red-400">{error}</p>
+        <p className="text-xs text-error">{error}</p>
       )}
 
       {loading ? (
