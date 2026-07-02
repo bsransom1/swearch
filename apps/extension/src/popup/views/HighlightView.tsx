@@ -6,7 +6,9 @@ import {
   appendBlocksToGoogleDoc,
   resolveLinkedDocId,
 } from "../../lib/google-docs";
+import { buildProjectContextBundle } from "../../lib/project-context";
 import { findRelatedPapers, buildSearchQueryFromAnalysis } from "../../lib/semantic-scholar";
+import { getActiveProjectId } from "../../lib/active-project";
 import { storage } from "../../lib/storage";
 import { supabase } from "../../lib/supabase";
 
@@ -29,12 +31,8 @@ export default function HighlightView({ onBack }: Props) {
 
   useEffect(() => {
     async function run() {
-      const stored = await storage.get([
-        "currentProjectId",
-        "currentProjectName",
-        "currentProjectContext",
-        "currentProjectDocId",
-      ]);
+      const projectId = await getActiveProjectId();
+      const stored = await storage.get(["currentProjectName"]);
 
       const { pendingAction } = await storage.get(["pendingAction"]);
 
@@ -47,18 +45,22 @@ export default function HighlightView({ onBack }: Props) {
       const payload = pendingAction.payload;
       setHighlight(payload);
 
-      if (!stored.currentProjectId) {
+      if (!projectId) {
         setError("No active project selected. Set one in Settings.");
         setStatus("error");
         return;
       }
 
       try {
+        const projectContextBundle = projectId
+          ? await buildProjectContextBundle(projectId, "analyze")
+          : null;
+
         const result = await analyzeHighlight({
           highlightText: payload.selectedText,
           paperTitle: payload.paperTitle,
           paperUrl: payload.paperUrl,
-          projectContext: stored.currentProjectContext || "",
+          projectContextBundle,
           projectName: stored.currentProjectName || "Research Project",
         });
 
@@ -66,7 +68,7 @@ export default function HighlightView({ onBack }: Props) {
         setStatus("done");
 
         // Persist to database and get the saved highlight ID for export tracking
-        const id = await saveHighlightToDb(payload, result, stored);
+        const id = await saveHighlightToDb(payload, result, projectId);
         setSavedHighlightId(id);
 
         // Fetch related papers asynchronously — don't block UI
@@ -88,7 +90,7 @@ export default function HighlightView({ onBack }: Props) {
   async function saveHighlightToDb(
     hl: any,
     result: HighlightAnalysis,
-    stored: any
+    projectId: string
   ): Promise<string | null> {
     const {
       data: { user },
@@ -101,7 +103,7 @@ export default function HighlightView({ onBack }: Props) {
       .upsert(
         {
           user_id: user.id,
-          project_id: stored.currentProjectId,
+          project_id: projectId,
           paper_title: hl.paperTitle,
           paper_url: hl.paperUrl,
           paper_doi: hl.paperDoi,
@@ -122,7 +124,7 @@ export default function HighlightView({ onBack }: Props) {
       .insert({
         user_id: user.id,
         paper_id: paper.id,
-        project_id: stored.currentProjectId,
+        project_id: projectId,
         highlight_text: hl.selectedText,
         ai_summary: result.summary,
         ai_methodology: result.methodology,

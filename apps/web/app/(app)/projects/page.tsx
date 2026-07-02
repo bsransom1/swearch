@@ -13,6 +13,19 @@ export default async function ProjectsPage() {
     .eq("user_id", user!.id)
     .order("updated_at", { ascending: false });
 
+  const projectIds = (projects || []).map((p) => p.id);
+  const { data: allLinkedDocs } = projectIds.length
+    ? await supabase
+        .from("project_google_docs")
+        .select("project_id")
+        .in("project_id", projectIds)
+    : { data: [] as { project_id: string }[] };
+
+  const docCountByProject = (allLinkedDocs || []).reduce<Record<string, number>>((acc, row) => {
+    acc[row.project_id] = (acc[row.project_id] || 0) + 1;
+    return acc;
+  }, {});
+
   return (
     <div className="p-8 max-w-4xl">
       <div className="flex items-center justify-between mb-8">
@@ -50,9 +63,10 @@ export default async function ProjectsPage() {
                       {project.description}
                     </p>
                   )}
-                  {project.google_doc_title && (
+                  {(docCountByProject[project.id] ?? 0) > 0 && (
                     <p className="text-text-tertiary text-xs mt-1.5">
-                      📄 {project.google_doc_title}
+                      📄 {docCountByProject[project.id]} linked doc
+                      {docCountByProject[project.id] === 1 ? "" : "s"}
                     </p>
                   )}
                 </div>

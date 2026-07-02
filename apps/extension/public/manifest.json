@@ -30,6 +30,12 @@
       "matches": ["__WEB_APP_MATCHES__"],
       "js": ["content/auth-sync.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/page-metadata.js"],
+      "type": "module",
+      "run_at": "document_idle"
     }
   ],
   "externally_connectable": {
@@ -50,7 +56,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["icons/*"],
+      "resources": ["icons/*", "chunks/*"],
       "matches": ["<all_urls>"]
     }
   ]

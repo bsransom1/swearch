@@ -4,7 +4,8 @@ import LoadingView from "./LoadingView";
 import ErrorView from "./ErrorView";
 import NoActiveProjectView from "./NoActiveProjectView";
 import CopyButton from "../components/CopyButton";
-import { bridge, type HighlightAnalysis, type ActiveProject } from "../lib/bridge";
+import MarkdownContent from "../../../components/MarkdownContent";
+import { bridge, type HighlightAnalysis, type ActiveProject, projectContextParams } from "../lib/bridge";
 import { SectionBlock } from "../../../lib/section-ui";
 import {
   BTN_PRIMARY,
@@ -44,8 +45,7 @@ export default function RelevanceView({ payload, project, onProjectSet }: Props)
         highlightText: payload.selectionText,
         paperTitle: payload.paperTitle,
         paperUrl: payload.paperUrl,
-        projectContext: proj.context ?? "",
-        projectName: proj.name,
+        ...projectContextParams(proj),
       });
       setAnalysis(result);
       setStatus("done");
@@ -117,7 +117,7 @@ export default function RelevanceView({ payload, project, onProjectSet }: Props)
       )}
 
       <SectionBlock sectionKey="relevance" labelOverride={`Relevance to ${project.name}`}>
-        {relevanceText}
+        <MarkdownContent content={relevanceText} variant="panel" />
       </SectionBlock>
 
       <button
@@ -136,10 +136,14 @@ export default function RelevanceView({ payload, project, onProjectSet }: Props)
       {showFull && (
         <div className="space-y-3">
           {analysis.summary && (
-            <SectionBlock sectionKey="summary">{analysis.summary}</SectionBlock>
+            <SectionBlock sectionKey="summary">
+              <MarkdownContent content={analysis.summary} variant="panel" />
+            </SectionBlock>
           )}
           {analysis.findings && (
-            <SectionBlock sectionKey="findings">{analysis.findings}</SectionBlock>
+            <SectionBlock sectionKey="findings">
+              <MarkdownContent content={analysis.findings} variant="panel" />
+            </SectionBlock>
           )}
         </div>
       )}

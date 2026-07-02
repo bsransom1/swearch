@@ -1,0 +1,18 @@
+---
+description: Apply Supabase migrations without asking the user to run CLI commands
+globs:
+alwaysApply: true
+---
+
+# Supabase migrations (agent)
+
+When a task requires applying database migrations:
+
+1. Prefer **Supabase MCP** `apply_migration` against project `wqrwgragtiiptjakidwj` (swearch-db).
+2. If MCP returns permission errors, use the linked CLI (do not ask the user):
+   ```bash
+   npx supabase@latest db push --include-all
+   ```
+   Use `--include-all` when a migration timestamp is older than migrations already on remote.
+3. Verify with `npx supabase@latest migration list`.
+4. Never tell the user to run `supabase db push` themselves unless MCP and CLI both fail and re-auth is required.

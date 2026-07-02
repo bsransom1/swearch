@@ -3,36 +3,38 @@ import {
   type HighlightAnalysis,
   parseHighlightAnalysis,
 } from "@swearch/shared/types/highlight-analysis";
+import type { ProjectContextBundle } from "@swearch/shared/types/project-chat-context";
+import type {
+  DiscoveredPaper,
+  FindRelatedPapersResult,
+  PageContextPayload,
+} from "@swearch/shared/types/discovered-paper";
+import type { PageMetadata } from "./page-context";
+import { withoutEmDash } from "@swearch/shared/text/without-em-dash";
+
+export type { ProjectContextBundle, DiscoveredPaper, FindRelatedPapersResult };
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const ANALYZE_URL = `${SUPABASE_URL}/functions/v1/analyze-highlight`;
 const ASK_URL = `${SUPABASE_URL}/functions/v1/ask-about-selection`;
 const CHAT_URL = `${SUPABASE_URL}/functions/v1/chat-with-swearch`;
+const FIND_PAPERS_URL = `${SUPABASE_URL}/functions/v1/find-related-papers`;
 
-// ── Chat types + function ────────────────────────────────────────────────────
+// ── Chat types ───────────────────────────────────────────────────────────────
 
 export interface ChatApiMessage {
   role: "user" | "assistant";
   content: string;
 }
 
-export interface ProjectChatContext {
-  name: string;
-  description: string | null;
-  docExcerpt: string | null;
-  recentHighlights: string[];
-}
-
-const MAX_HISTORY_MESSAGES = 16; // 8 exchanges
+const MAX_HISTORY_MESSAGES = 16;
 
 export async function sendChatMessage(
   messages: ChatApiMessage[],
-  projectContext: ProjectChatContext | null
+  projectContextBundle: ProjectContextBundle | null
 ): Promise<string> {
   const token = await getAccessToken();
 
-  // TODO: Consider summarizing dropped history instead of hard truncation if
-  // users report losing important earlier context.
   const trimmed =
     messages.length > MAX_HISTORY_MESSAGES
       ? messages.slice(messages.length - MAX_HISTORY_MESSAGES)
@@ -44,7 +46,7 @@ export async function sendChatMessage(
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ messages: trimmed, projectContext }),
+    body: JSON.stringify({ messages: trimmed, projectContextBundle }),
   });
 
   if (!response.ok) {
@@ -55,7 +57,47 @@ export async function sendChatMessage(
   const { data, error } = await response.json();
   if (error) throw new Error(error);
 
-  return data.reply as string;
+  return withoutEmDash(data.reply as string);
+}
+
+function pageMetadataToContext(meta: PageMetadata): PageContextPayload {
+  return {
+    url: meta.paperUrl,
+    title: meta.paperTitle,
+    abstract: meta.paperAbstract,
+    doi: meta.paperDoi,
+    conclusion: meta.paperConclusion,
+    isLikelyPaper: meta.isLikelyPaper,
+  };
+}
+
+export async function findRelatedPapersViaEdge(
+  pageMetadata: PageMetadata,
+  projectContextBundle: ProjectContextBundle | null
+): Promise<FindRelatedPapersResult> {
+  const token = await getAccessToken();
+
+  const response = await fetch(FIND_PAPERS_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      pageContext: pageMetadataToContext(pageMetadata),
+      projectContextBundle,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Find papers failed ${response.status}: ${text}`);
+  }
+
+  const { data, error } = await response.json();
+  if (error) throw new Error(error);
+
+  return data as FindRelatedPapersResult;
 }
 
 export type { HighlightAnalysis };
@@ -68,11 +110,13 @@ async function getAccessToken(): Promise<string> {
   return session.access_token;
 }
 
+// ── Analyze highlight ────────────────────────────────────────────────────────
+
 export async function analyzeHighlight(params: {
   highlightText: string;
   paperTitle: string;
   paperUrl: string;
-  projectContext: string;
+  projectContextBundle?: ProjectContextBundle | null;
   projectName: string;
   mode?: "full" | "claims_only";
 }): Promise<HighlightAnalysis> {
@@ -106,7 +150,7 @@ export async function extractClaims(params: {
   highlightText: string;
   paperTitle: string;
   paperUrl: string;
-  projectContext: string;
+  projectContextBundle?: ProjectContextBundle | null;
   projectName: string;
 }): Promise<ClaimsResult> {
   const token = await getAccessToken();
@@ -137,7 +181,7 @@ export async function askAboutSelection(params: {
   question: string;
   paperTitle: string;
   paperUrl: string;
-  projectContext: string;
+  projectContextBundle?: ProjectContextBundle | null;
   projectName: string;
 }): Promise<{ answer: string }> {
   const token = await getAccessToken();

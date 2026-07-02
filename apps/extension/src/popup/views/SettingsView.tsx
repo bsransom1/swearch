@@ -1,42 +1,76 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
-import { storage } from "../../lib/storage";
+import {
+  getActiveProjectId,
+  setActiveProject as persistActiveProject,
+} from "../../lib/active-project";
 import {
   connectGoogleDrive,
   isGoogleDriveConnected,
   listGoogleDocs,
-  readGoogleDoc,
   type GoogleDocSummary,
 } from "../../lib/google-docs";
-import LinkedDocCard from "../components/LinkedDocCard";
+import {
+  fetchProjectGoogleDocs,
+  linkProjectGoogleDoc,
+  refreshProjectGoogleDocCache,
+  removeProjectGoogleDoc,
+  syncProjectStorageFromDocs,
+  updateProjectGoogleDocRole,
+  type ProjectGoogleDoc,
+} from "../../lib/project-google-docs";
+import type { ProjectGoogleDocRole } from "@swearch/shared/types/project-google-doc";
 import GoogleDocPicker from "../components/GoogleDocPicker";
-import { BTN_PRIMARY } from "../../lib/theme";
+import DocRoleChooser from "../components/DocRoleChooser";
+import GoogleDriveIcon from "../components/GoogleDriveIcon";
+import LinkedProjectDocCard from "../components/LinkedProjectDocCard";
+import LinkedProjectPaperCard from "../components/LinkedProjectPaperCard";
+import {
+  fetchProjectPaperRecommendations,
+  removeProjectPaperRecommendation,
+} from "../../lib/project-papers";
+import type { PaperRecommendation } from "@swearch/shared";
+import { BTN_SECONDARY } from "../../lib/theme";
 
 interface Props {
   onBack: () => void;
 }
 
-function docFromProject(id: string, title: string): GoogleDocSummary {
-  return {
-    id,
-    name: title,
-    modifiedTime: new Date(0).toISOString(),
-  };
-}
+type FlowStep = "list" | "picker" | "choose-role";
 
 export default function SettingsView({ onBack }: Props) {
-  const [projects, setProjects] = useState<any[]>([]);
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [linkedDocs, setLinkedDocs] = useState<ProjectGoogleDoc[]>([]);
+  const [savedPapers, setSavedPapers] = useState<PaperRecommendation[]>([]);
   const [googleDocs, setGoogleDocs] = useState<GoogleDocSummary[]>([]);
-  const [selectedDocId, setSelectedDocId] = useState<string>("");
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [flowStep, setFlowStep] = useState<FlowStep>("list");
+  const [pendingDoc, setPendingDoc] = useState<GoogleDocSummary | null>(null);
+  const [roleChangeTarget, setRoleChangeTarget] = useState<ProjectGoogleDoc | null>(null);
   const [driveConnected, setDriveConnected] = useState(false);
   const [connectingDrive, setConnectingDrive] = useState(false);
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [docsLoaded, setDocsLoaded] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [docActionBusy, setDocActionBusy] = useState(false);
   const [docsError, setDocsError] = useState<string | null>(null);
+
+  const loadLinkedDocs = useCallback(async (projectId: string) => {
+    if (!projectId) {
+      setLinkedDocs([]);
+      setSavedPapers([]);
+      return;
+    }
+    try {
+      const [docs, papers] = await Promise.all([
+        fetchProjectGoogleDocs(projectId),
+        fetchProjectPaperRecommendations(projectId),
+      ]);
+      setLinkedDocs(docs);
+      setSavedPapers(papers);
+    } catch (e: any) {
+      setDocsError(e.message || "Failed to load linked documents.");
+    }
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -47,30 +81,23 @@ export default function SettingsView({ onBack }: Props) {
 
       const { data } = await supabase
         .from("research_projects")
-        .select("id, name, google_doc_id, google_doc_title")
+        .select("id, name")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
 
       setProjects(data || []);
 
-      const stored = await storage.get(["currentProjectId", "currentProjectDocId"]);
-      const projectId = stored.currentProjectId || data?.[0]?.id || "";
+      const projectId = (await getActiveProjectId()) || data?.[0]?.id || "";
       setSelectedProjectId(projectId);
-
-      const activeProject = data?.find((p) => p.id === projectId);
-      const docId = stored.currentProjectDocId || activeProject?.google_doc_id || "";
-      setSelectedDocId(docId);
-
-      if (activeProject?.google_doc_id && activeProject.google_doc_title) {
-        setGoogleDocs([
-          docFromProject(activeProject.google_doc_id, activeProject.google_doc_title),
-        ]);
+      await loadLinkedDocs(projectId);
+      const project = (data || []).find((p) => p.id === projectId);
+      if (project) {
+        await syncProjectStorageFromDocs(project.id, project.name);
       }
-
       setDriveConnected(await isGoogleDriveConnected());
     }
     load();
-  }, []);
+  }, [loadLinkedDocs]);
 
   const loadGoogleDocs = useCallback(async () => {
     setLoadingDocs(true);
@@ -95,12 +122,14 @@ export default function SettingsView({ onBack }: Props) {
   }, [driveConnected]);
 
   const openPicker = useCallback(async () => {
-    setPickerOpen(true);
+    setFlowStep("picker");
+    setPendingDoc(null);
+    setRoleChangeTarget(null);
     setDocsError(null);
-    if (!docsLoaded || googleDocs.length <= 1) {
+    if (!docsLoaded) {
       await loadGoogleDocs();
     }
-  }, [docsLoaded, googleDocs.length, loadGoogleDocs]);
+  }, [docsLoaded, loadGoogleDocs]);
 
   async function handleConnectDrive() {
     setConnectingDrive(true);
@@ -116,68 +145,169 @@ export default function SettingsView({ onBack }: Props) {
     }
   }
 
-  function handleSelectDoc(docId: string) {
-    setSelectedDocId(docId);
-    setPickerOpen(false);
-    setDocsError(null);
-  }
+  async function handleProjectChange(projectId: string) {
+    setSelectedProjectId(projectId);
+    setFlowStep("list");
+    setPendingDoc(null);
+    setRoleChangeTarget(null);
+    await loadLinkedDocs(projectId);
 
-  async function handleSave() {
-    setSaving(true);
-    setDocsError(null);
-    const project = projects.find((p) => p.id === selectedProjectId);
-    if (!project) {
-      setSaving(false);
-      return;
-    }
-
-    const selectedDoc = googleDocs.find((d) => d.id === selectedDocId);
-
-    let docText = "";
-    if (selectedDocId) {
+    if (projectId) {
       try {
-        docText = await readGoogleDoc(selectedDocId);
-      } catch (e) {
-        console.warn("Could not read doc text for context:", e);
+        await persistActiveProject(projectId);
+        chrome.runtime.sendMessage({ type: "SWEARCH_PROJECT_CHANGED" }).catch(() => {});
+      } catch (e: any) {
+        setDocsError(e.message || "Failed to set active project.");
       }
     }
-
-    await storage.set({
-      currentProjectId: project.id,
-      currentProjectName: project.name,
-      currentProjectDocId: selectedDocId || project.google_doc_id || undefined,
-      currentProjectContext: docText || undefined,
-      currentProjectContextAt: Date.now(),
-    });
-
-    if (selectedDocId && selectedDocId !== project.google_doc_id) {
-      await supabase
-        .from("research_projects")
-        .update({
-          google_doc_id: selectedDocId,
-          google_doc_title: selectedDoc?.name,
-          google_doc_cached_text: docText,
-          google_doc_cached_at: new Date().toISOString(),
-        })
-        .eq("id", project.id);
-    }
-
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
   }
 
-  const selectedProject = projects.find((p) => p.id === selectedProjectId);
+  const linkedGoogleDocIds = useMemo(
+    () => new Set(linkedDocs.map((d) => d.google_doc_id)),
+    [linkedDocs]
+  );
 
-  const selectedDoc = useMemo((): GoogleDocSummary | null => {
-    if (!selectedDocId) return null;
-    const fromList = googleDocs.find((d) => d.id === selectedDocId);
-    if (fromList) return fromList;
-    if (selectedProject?.google_doc_id === selectedDocId && selectedProject.google_doc_title) {
-      return docFromProject(selectedDocId, selectedProject.google_doc_title);
+  const pickerDocs = useMemo(
+    () => googleDocs.filter((d) => !linkedGoogleDocIds.has(d.id)),
+    [googleDocs, linkedGoogleDocIds]
+  );
+
+  const showBothOption = roleChangeTarget
+    ? linkedDocs.length === 1
+    : linkedDocs.length === 0;
+
+  async function updateDocRole(doc: ProjectGoogleDoc, role: ProjectGoogleDocRole) {
+    if (role === doc.role) return;
+
+    const project = projects.find((p) => p.id === selectedProjectId);
+    if (!project) return;
+
+    setDocActionBusy(true);
+    setDocsError(null);
+
+    try {
+      await updateProjectGoogleDocRole(doc.id, project.id, role);
+      await loadLinkedDocs(project.id);
+      await syncProjectStorageFromDocs(project.id, project.name);
+      chrome.runtime.sendMessage({ type: "SWEARCH_PROJECT_CHANGED" }).catch(() => {});
+    } catch (e: any) {
+      setDocsError(e.message || "Failed to update document role.");
+    } finally {
+      setDocActionBusy(false);
     }
-    return null;
-  }, [selectedDocId, googleDocs, selectedProject]);
+  }
+
+  async function applyDocRole(role: ProjectGoogleDocRole) {
+    const project = projects.find((p) => p.id === selectedProjectId);
+    if (!project) return;
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    setDocActionBusy(true);
+    setDocsError(null);
+
+    try {
+      if (roleChangeTarget) {
+        await updateProjectGoogleDocRole(roleChangeTarget.id, project.id, role);
+      } else if (pendingDoc) {
+        await linkProjectGoogleDoc({
+          projectId: project.id,
+          userId: user.id,
+          googleDocId: pendingDoc.id,
+          title: pendingDoc.name,
+          role,
+          sortOrder: linkedDocs.length,
+        });
+      }
+
+      await loadLinkedDocs(project.id);
+      await syncProjectStorageFromDocs(project.id, project.name);
+      chrome.runtime.sendMessage({ type: "SWEARCH_PROJECT_CHANGED" }).catch(() => {});
+      setFlowStep("list");
+      setPendingDoc(null);
+      setRoleChangeTarget(null);
+    } catch (e: any) {
+      setDocsError(e.message || "Failed to save document.");
+    } finally {
+      setDocActionBusy(false);
+    }
+  }
+
+  function handlePickerSelect(docId: string) {
+    const doc = googleDocs.find((d) => d.id === docId);
+    if (!doc) return;
+    setPendingDoc(doc);
+    setRoleChangeTarget(null);
+    setFlowStep("choose-role");
+  }
+
+  async function handleSyncDoc(doc: ProjectGoogleDoc) {
+    const project = projects.find((p) => p.id === selectedProjectId);
+    if (!project) return;
+    setDocActionBusy(true);
+    setDocsError(null);
+    try {
+      await refreshProjectGoogleDocCache(doc.id);
+      await loadLinkedDocs(project.id);
+      await syncProjectStorageFromDocs(project.id, project.name);
+    } catch (e: any) {
+      setDocsError(e.message || "Failed to sync document.");
+    } finally {
+      setDocActionBusy(false);
+    }
+  }
+
+  async function handleRemoveDoc(doc: ProjectGoogleDoc) {
+    const project = projects.find((p) => p.id === selectedProjectId);
+    if (!project) return;
+
+    const confirmed = window.confirm(`Remove "${doc.title}" from this project?`);
+    if (!confirmed) return;
+
+    setDocActionBusy(true);
+    setDocsError(null);
+    try {
+      await removeProjectGoogleDoc(doc.id);
+      await loadLinkedDocs(project.id);
+      await syncProjectStorageFromDocs(project.id, project.name);
+      chrome.runtime.sendMessage({ type: "SWEARCH_PROJECT_CHANGED" }).catch(() => {});
+    } catch (e: any) {
+      setDocsError(e.message || "Failed to remove document.");
+    } finally {
+      setDocActionBusy(false);
+    }
+  }
+
+  async function handleRemovePaper(paper: PaperRecommendation) {
+    const project = projects.find((p) => p.id === selectedProjectId);
+    if (!project) return;
+
+    const confirmed = window.confirm(`Remove "${paper.recommended_title}" from this project?`);
+    if (!confirmed) return;
+
+    setDocActionBusy(true);
+    setDocsError(null);
+    try {
+      await removeProjectPaperRecommendation(paper.id);
+      await loadLinkedDocs(project.id);
+    } catch (e: any) {
+      setDocsError(e.message || "Failed to remove paper.");
+    } finally {
+      setDocActionBusy(false);
+    }
+  }
+
+  function cancelFlow() {
+    setFlowStep("list");
+    setPendingDoc(null);
+    setRoleChangeTarget(null);
+  }
+
+  const roleChooserTitle =
+    roleChangeTarget?.title || pendingDoc?.name || "Document";
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4">
@@ -191,51 +321,28 @@ export default function SettingsView({ onBack }: Props) {
         <span className="text-sm font-medium text-text-primary">Settings</span>
       </div>
 
-      <div className="bg-surface-1 border border-border-subtle rounded-lg p-3">
-        <p className="text-xs font-medium text-text-primary mb-1">Google Drive access</p>
-        <p className="text-xs text-text-tertiary mb-2">
-          Export uses the Chrome extension OAuth client, not your Swearch login. Connect
-          once to grant Drive + Docs access.
-        </p>
-        <div className="flex items-center justify-between gap-2">
-          <span className={`text-xs ${driveConnected ? "text-green-400" : "text-text-tertiary"}`}>
-            {driveConnected ? "✓ Connected" : "Not connected"}
+      <div className="flex items-center gap-2.5 bg-surface-1 border border-border-subtle rounded-lg px-3 py-2">
+        <GoogleDriveIcon className="w-4 h-4 flex-shrink-0" />
+        <p className="flex-1 min-w-0 text-xs text-text-secondary">
+          Status:{" "}
+          <span className={driveConnected ? "text-green-500" : "text-text-tertiary"}>
+            {driveConnected ? "connected" : "not connected"}
           </span>
-          <button
-            onClick={handleConnectDrive}
-            disabled={connectingDrive}
-            className="px-3 py-1.5 bg-surface-2 hover:bg-surface-1 border border-border-subtle rounded-lg text-xs text-text-secondary disabled:opacity-50 transition-colors"
-          >
-            {connectingDrive ? "Connecting..." : driveConnected ? "Reconnect" : "Connect Google Drive"}
-          </button>
-        </div>
+        </p>
+        <button
+          onClick={handleConnectDrive}
+          disabled={connectingDrive}
+          className="flex-shrink-0 px-2.5 py-1 bg-surface-2 hover:bg-surface-0 border border-border-subtle rounded-md text-[11px] text-text-secondary disabled:opacity-50 transition-colors"
+        >
+          {connectingDrive ? "Connecting…" : driveConnected ? "Reconnect" : "Connect"}
+        </button>
       </div>
 
       <div>
         <label className="text-xs text-text-tertiary block mb-1.5">Active project</label>
         <select
           value={selectedProjectId}
-          onChange={(e) => {
-            const id = e.target.value;
-            setSelectedProjectId(id);
-            setPickerOpen(false);
-            const project = projects.find((p) => p.id === id);
-            if (project?.google_doc_id) {
-              setSelectedDocId(project.google_doc_id);
-              if (project.google_doc_title) {
-                setGoogleDocs((prev) => {
-                  const existing = prev.find((d) => d.id === project.google_doc_id);
-                  if (existing) return prev;
-                  return [
-                    docFromProject(project.google_doc_id, project.google_doc_title),
-                    ...prev,
-                  ];
-                });
-              }
-            } else {
-              setSelectedDocId("");
-            }
-          }}
+          onChange={(e) => handleProjectChange(e.target.value)}
           className="w-full px-3 py-2 bg-surface-1 border border-border-subtle rounded-lg text-sm text-text-primary focus:outline-none focus:border-accent"
         >
           <option value="">Select a project...</option>
@@ -254,53 +361,92 @@ export default function SettingsView({ onBack }: Props) {
 
       <div>
         <label className="text-[11px] font-medium uppercase tracking-wide text-text-tertiary block mb-1.5">
-          Linked Google Doc
+          Linked Google Docs
         </label>
 
-        {docsError && !pickerOpen && (
+        {docsError && flowStep === "list" && (
           <p className="text-xs text-error mb-2 bg-error-50 border border-error/30 rounded-lg px-3 py-2">
             {docsError}
           </p>
         )}
 
-        {pickerOpen ? (
+        {flowStep === "picker" ? (
           <GoogleDocPicker
-            docs={googleDocs}
-            selectedDocId={selectedDocId}
+            docs={pickerDocs}
+            selectedDocId=""
             loading={loadingDocs}
-            error={pickerOpen ? docsError : null}
-            onSelect={handleSelectDoc}
+            error={docsError}
+            onSelect={handlePickerSelect}
             onRefresh={loadGoogleDocs}
-            onClose={() => setPickerOpen(false)}
+            onClose={cancelFlow}
           />
-        ) : selectedDoc ? (
-          <LinkedDocCard doc={selectedDoc} onChange={openPicker} />
+        ) : flowStep === "choose-role" ? (
+          <DocRoleChooser
+            docTitle={roleChooserTitle}
+            showBothOption={showBothOption}
+            onConfirm={applyDocRole}
+            onCancel={cancelFlow}
+            busy={docActionBusy}
+          />
         ) : (
-          <div className="bg-surface-1 border border-border-subtle rounded-lg p-3 text-center">
-            <p className="text-xs text-text-secondary mb-1">No document linked</p>
-            <p className="text-[11px] text-text-tertiary mb-3">
-              Choose where highlights export in Google Docs.
-            </p>
+          <div className="space-y-2">
+            {linkedDocs.length === 0 ? (
+              <div className="bg-surface-1 border border-border-subtle rounded-lg p-3 text-center">
+                <p className="text-xs text-text-secondary mb-1">No documents linked</p>
+                <p className="text-[11px] text-text-tertiary mb-3">
+                  Link context docs for AI and export docs for highlights.
+                </p>
+              </div>
+            ) : (
+              linkedDocs.map((doc) => (
+                <LinkedProjectDocCard
+                  key={doc.id}
+                  doc={doc}
+                  showBothOption={linkedDocs.length === 1 || doc.role === "both"}
+                  onRoleChange={(role) => updateDocRole(doc, role)}
+                  onRemove={() => handleRemoveDoc(doc)}
+                  onSync={() => handleSyncDoc(doc)}
+                  busy={docActionBusy}
+                />
+              ))
+            )}
             <button
               type="button"
               onClick={openPicker}
-              disabled={loadingDocs}
-              className="w-full py-2 bg-surface-2 hover:bg-surface-0 border border-border-subtle rounded-lg text-xs text-text-primary disabled:opacity-50 transition-colors"
+              disabled={!selectedProjectId || docActionBusy || loadingDocs}
+              className={`w-full py-2 text-xs ${BTN_SECONDARY}`}
             >
-              {loadingDocs ? "Loading..." : "Browse documents"}
+              {loadingDocs ? "Loading..." : "+ Add document"}
             </button>
           </div>
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={handleSave}
-        disabled={saving || !selectedProjectId}
-        className={`w-full ${BTN_PRIMARY}`}
-      >
-        {saving ? "Saving…" : saved ? "✓ Saved" : "Save settings"}
-      </button>
+      <div>
+        <label className="text-[11px] font-medium uppercase tracking-wide text-text-tertiary block mb-1.5">
+          Relevant papers{savedPapers.length > 0 ? ` (${savedPapers.length})` : ""}
+        </label>
+
+        <div className="space-y-2">
+          {savedPapers.length === 0 ? (
+            <div className="bg-surface-1 border border-border-subtle rounded-lg p-3 text-center">
+              <p className="text-xs text-text-secondary mb-1">No papers saved yet</p>
+              <p className="text-[11px] text-text-tertiary">
+                Use the brain icon in chat on a paper page to discover and add papers.
+              </p>
+            </div>
+          ) : (
+            savedPapers.map((paper) => (
+              <LinkedProjectPaperCard
+                key={paper.id}
+                paper={paper}
+                onRemove={() => handleRemovePaper(paper)}
+                busy={docActionBusy}
+              />
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }

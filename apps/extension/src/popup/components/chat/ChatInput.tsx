@@ -1,6 +1,5 @@
 import { useState, useRef, type KeyboardEvent } from "react";
-import { Send } from "lucide-react";
-import { BTN_PRIMARY, INPUT_FIELD_POPUP } from "../../../lib/theme";
+import { Lightbulb } from "lucide-react";
 
 interface Props {
   onSend: (text: string) => void;
@@ -39,8 +38,10 @@ export default function ChatInput({
   }
 
   return (
-    <div className="border-t border-border-subtle px-4 py-3 flex-shrink-0 mt-auto">
-      <div className="flex items-end gap-2">
+    <div className="mt-auto flex-shrink-0 py-3">
+      <div
+        className="flex w-full items-end gap-2 rounded-full border border-border-subtle bg-surface-0 py-1.5 pl-4 pr-1.5 shadow-tier-2 transition-colors focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/30"
+      >
         <textarea
           ref={textareaRef}
           value={value}
@@ -50,17 +51,16 @@ export default function ChatInput({
           placeholder={placeholder}
           rows={1}
           disabled={disabled}
-          className={`flex-1 resize-none disabled:opacity-60 ${INPUT_FIELD_POPUP}`}
-          style={{ minHeight: "40px" }}
+          className="min-h-[36px] max-h-[120px] min-w-0 flex-1 resize-none border-0 bg-transparent py-2 text-sm leading-snug text-text-primary placeholder:text-text-tertiary focus:outline-none disabled:opacity-60"
         />
         <button
           type="button"
           onClick={handleSubmit}
           disabled={disabled || !value.trim()}
-          className={`flex-shrink-0 ${BTN_PRIMARY} px-3 py-2.5`}
+          className="mb-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-accent text-white shadow-btn-primary transition-colors hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-40"
           aria-label="Send message"
         >
-          <Send size={16} strokeWidth={2} />
+          <Lightbulb size={13} strokeWidth={2.25} />
         </button>
       </div>
     </div>

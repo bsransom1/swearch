@@ -3,7 +3,8 @@ import { AlertCircle, CheckCircle2, FileOutput } from "lucide-react";
 import LoadingView from "./LoadingView";
 import ErrorView from "./ErrorView";
 import CopyButton from "../components/CopyButton";
-import { bridge, type HighlightAnalysis, type ActiveProject } from "../lib/bridge";
+import MarkdownContent from "../../../components/MarkdownContent";
+import { bridge, type HighlightAnalysis, type ActiveProject, projectContextParams } from "../lib/bridge";
 import { getCachedAnalysis } from "../lib/highlight-cache";
 import { getAnalysisSections } from "@swearch/shared/types/highlight-analysis";
 import { SectionBlock, sectionKeyFromAnalysisKey } from "../../../lib/section-ui";
@@ -75,8 +76,7 @@ export default function SummarizeView({ payload, project }: Props) {
         highlightText: payload.selectionText,
         paperTitle: payload.paperTitle,
         paperUrl: payload.paperUrl,
-        projectContext: project?.context ?? "",
-        projectName: project?.name ?? "Research Project",
+        ...projectContextParams(project),
       });
 
       setAnalysis(result);
@@ -146,7 +146,7 @@ export default function SummarizeView({ payload, project }: Props) {
         if (!sectionKey) return null;
         return (
           <SectionBlock key={key} sectionKey={sectionKey} labelOverride={label}>
-            {content as string}
+            <MarkdownContent content={content as string} variant="panel" />
           </SectionBlock>
         );
       })}

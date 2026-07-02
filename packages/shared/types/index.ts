@@ -1,5 +1,39 @@
 export type { Database, Json } from "./database";
 export type { HighlightAnalysis } from "./highlight-analysis";
+export type {
+  ProjectGoogleDoc,
+  ProjectGoogleDocRole,
+  ProjectDocumentContext,
+  LinkedDocInventoryItem,
+} from "./project-google-doc";
+export {
+  isContextRole,
+  isExportRole,
+  roleBadges,
+  buildDocumentContextEntries,
+  buildLinkedDocInventory,
+  formatDocumentsForPrompt,
+  findExportDoc,
+  findExportDocs,
+} from "./project-google-doc";
+export type {
+  ContextTask,
+  HighlightContextItem,
+  ProjectContextBundle,
+  ProjectChatContext,
+  SavedPaperContextItem,
+  SavedPaperInventoryItem,
+  SavedPaperRow,
+} from "./project-chat-context";
+export {
+  buildDocumentContent,
+  buildHighlightContext,
+  buildProjectContextBundle,
+  buildSavedPaperContext,
+  buildSavedPaperInventory,
+  formatProjectContextForPrompt,
+} from "./project-chat-context";
+export type { DiscoveredPaper, PageContextPayload, FindRelatedPapersResult } from "./discovered-paper";
 export {
   extractJsonObject,
   getAnalysisSections,
@@ -15,3 +49,4 @@ export type ResearchProject = Database["public"]["Tables"]["research_projects"][
 export type PaperAnalyzed = Database["public"]["Tables"]["papers_analyzed"]["Row"];
 export type Highlight = Database["public"]["Tables"]["highlights"]["Row"];
 export type PaperRecommendation = Database["public"]["Tables"]["paper_recommendations"]["Row"];
+export type ProjectGoogleDocRow = Database["public"]["Tables"]["project_google_docs"]["Row"];

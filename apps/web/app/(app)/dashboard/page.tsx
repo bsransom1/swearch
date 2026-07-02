@@ -6,7 +6,7 @@ export default async function DashboardPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const [{ data: profile }, { data: activeProject }, { data: recentHighlights }, { data: stats }] =
+  const [{ data: profile }, { data: activeProject }, { data: recentHighlights }, { count: weeklyHighlightCount }] =
     await Promise.all([
       supabase.from("profiles").select("*").eq("id", user!.id).single(),
       supabase
@@ -27,6 +27,15 @@ export default async function DashboardPage() {
         .eq("user_id", user!.id)
         .gte("created_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
     ]);
+
+  let linkedDocCount = 0;
+  if (activeProject?.id) {
+    const { count } = await supabase
+      .from("project_google_docs")
+      .select("id", { count: "exact", head: true })
+      .eq("project_id", activeProject.id);
+    linkedDocCount = count ?? 0;
+  }
 
   const firstName = profile?.full_name?.split(" ")[0] || "Researcher";
 
@@ -59,9 +68,9 @@ export default async function DashboardPage() {
                     {activeProject.description}
                   </p>
                 )}
-                {activeProject.google_doc_title && (
+                {linkedDocCount > 0 && (
                   <p className="text-text-tertiary text-xs mt-2">
-                    📄 {activeProject.google_doc_title}
+                    📄 {linkedDocCount} linked doc{linkedDocCount === 1 ? "" : "s"}
                   </p>
                 )}
               </div>
@@ -81,7 +90,7 @@ export default async function DashboardPage() {
               </div>
               <div>
                 <p className="text-xl font-semibold text-text-primary">
-                  {stats?.count ?? 0}
+                  {weeklyHighlightCount ?? 0}
                 </p>
                 <p className="text-xs text-text-tertiary">Highlights this week</p>
               </div>

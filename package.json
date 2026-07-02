@@ -13,7 +13,7 @@
     "db:start": "pnpm exec supabase start",
     "db:migrate": "pnpm exec supabase db push",
     "db:types": "pnpm exec supabase gen types typescript --local > packages/shared/types/database.ts",
-    "functions:deploy": "pnpm exec supabase functions deploy analyze-highlight --project-ref wqrwgragtiiptjakidwj",
+    "functions:deploy": "pnpm exec supabase functions deploy chat-with-swearch analyze-highlight ask-about-selection find-related-papers summarize-project-doc --project-ref wqrwgragtiiptjakidwj",
     "lint": "pnpm --recursive lint",
     "test": "vitest run",
     "test:auth": "vitest run tests/auth-config.test.ts tests/auth-bridge.integration.test.ts packages/shared/constants/auth-sync.test.ts",

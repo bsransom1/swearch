@@ -7,7 +7,7 @@ import {
   actionTypeForMenuItemId,
 } from "@swearch/shared/constants/extension-actions";
 import { storage } from "../lib/storage";
-import { supabase } from "../lib/supabase";
+import { getActiveProject } from "../lib/active-project";
 
 const PANEL_SCRIPT = "content/panel-injector.js";
 
@@ -19,16 +19,11 @@ function mainFrame(tabId: number): chrome.scripting.InjectionTarget {
 }
 
 async function getActiveProjectName(): Promise<string | null> {
-  const stored = await storage.get(["currentProjectId", "currentProjectName"]);
+  const stored = await storage.get(["currentProjectName"]);
   if (stored.currentProjectName) return stored.currentProjectName;
-  if (!stored.currentProjectId) return null;
 
-  const { data } = await supabase
-    .from("research_projects")
-    .select("name")
-    .eq("id", stored.currentProjectId)
-    .single();
-  return data?.name ?? null;
+  const project = await getActiveProject();
+  return project?.name ?? null;
 }
 
 export async function registerContextMenus(): Promise<void> {

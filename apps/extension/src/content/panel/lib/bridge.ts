@@ -1,3 +1,7 @@
+import type { ProjectContextBundle } from "@swearch/shared/types/project-chat-context";
+
+export type { ProjectContextBundle };
+
 /** RPC-style wrapper for calling background service worker from panel code. */
 export function callBackground<T>(type: string, payload?: unknown): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -25,7 +29,9 @@ export interface ActiveProject {
   google_doc_id: string | null;
   google_doc_title: string | null;
   description: string | null;
+  /** Deprecated: legacy context string. Prefer projectContextBundle. */
   context: string | null;
+  projectContextBundle?: ProjectContextBundle;
 }
 
 export interface Project {
@@ -45,6 +51,13 @@ export interface HighlightAnalysis {
   tags: string[];
 }
 
+export function projectContextParams(project: ActiveProject | null) {
+  return {
+    projectContextBundle: project?.projectContextBundle ?? null,
+    projectName: project?.name ?? "Research Project",
+  };
+}
+
 export const bridge = {
   getActiveProject: () =>
     callBackground<ActiveProject | null>("SWEARCH_GET_ACTIVE_PROJECT"),
@@ -59,7 +72,7 @@ export const bridge = {
     highlightText: string;
     paperTitle: string;
     paperUrl: string;
-    projectContext: string;
+    projectContextBundle?: ProjectContextBundle | null;
     projectName: string;
   }) => callBackground<HighlightAnalysis>("SWEARCH_ANALYZE", params),
 
@@ -67,7 +80,7 @@ export const bridge = {
     highlightText: string;
     paperTitle: string;
     paperUrl: string;
-    projectContext: string;
+    projectContextBundle?: ProjectContextBundle | null;
     projectName: string;
   }) => callBackground<{ claims: string[] }>("SWEARCH_EXTRACT_CLAIMS", params),
 
@@ -76,7 +89,7 @@ export const bridge = {
     question: string;
     paperTitle: string;
     paperUrl: string;
-    projectContext: string;
+    projectContextBundle?: ProjectContextBundle | null;
     projectName: string;
   }) => callBackground<{ answer: string }>("SWEARCH_ASK", params),
 

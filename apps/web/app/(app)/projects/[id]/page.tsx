@@ -1,7 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { formatDate } from "@/lib/utils";
+import LinkedDocumentsManager from "@/components/projects/linked-documents-manager";
+import type { ProjectGoogleDoc } from "@swearch/shared/types/project-google-doc";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -21,38 +22,34 @@ export default async function ProjectDetailPage({ params }: Props) {
 
   if (!project) notFound();
 
-  const { data: papers } = await supabase
-    .from("papers_analyzed")
-    .select("*")
-    .eq("project_id", id)
-    .order("last_highlighted_at", { ascending: false });
+  const [{ data: papers }, { data: linkedDocs }] = await Promise.all([
+    supabase
+      .from("papers_analyzed")
+      .select("*")
+      .eq("project_id", id)
+      .order("last_highlighted_at", { ascending: false }),
+    supabase
+      .from("project_google_docs")
+      .select("*")
+      .eq("project_id", id)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true }),
+  ]);
 
   return (
     <div className="p-8 max-w-4xl">
-      {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-text-tertiary mb-6">
         <Link href="/projects" className="hover:text-text-secondary">Projects</Link>
         <span>/</span>
         <span className="text-text-primary">{project.name}</span>
       </div>
 
-      {/* Project header */}
       <div className="mb-8">
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-text-primary">{project.name}</h1>
             {project.description && (
               <p className="text-text-secondary text-sm mt-1">{project.description}</p>
-            )}
-            {project.google_doc_title && (
-              <a
-                href={`https://docs.google.com/document/d/${project.google_doc_id}/edit`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-accent hover:underline mt-2 inline-block"
-              >
-                📄 {project.google_doc_title} →
-              </a>
             )}
           </div>
           <Link
@@ -64,7 +61,11 @@ export default async function ProjectDetailPage({ params }: Props) {
         </div>
       </div>
 
-      {/* Papers summary */}
+      <LinkedDocumentsManager
+        projectId={id}
+        initialDocs={(linkedDocs as ProjectGoogleDoc[]) || []}
+      />
+
       <section>
         <h2 className="text-xs font-medium text-text-tertiary uppercase tracking-wider mb-3">
           Papers ({papers?.length ?? 0})

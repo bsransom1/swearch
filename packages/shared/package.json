@@ -9,6 +9,7 @@
     "./types/*": "./types/*.ts",
     "./constants/*": "./constants/*.ts",
     "./utils/*": "./utils/*.ts",
+    "./text/*": "./text/*.ts",
     "./export/*": "./export/*.ts"
   }
 }

@@ -25,6 +25,13 @@ import {
   extractClaims,
 } from "../lib/claude";
 import { storage } from "../lib/storage";
+import {
+  getActiveProjectId,
+  restoreActiveProject,
+  setActiveProject as persistActiveProject,
+} from "../lib/active-project";
+import { fetchExportDocId } from "../lib/project-google-docs";
+import { buildProjectContextBundle } from "../lib/project-context";
 import { getRecentAnalysisForPaper } from "../lib/highlight-cache";
 import { trackHighlightInSession } from "../lib/session-tracking";
 
@@ -37,6 +44,11 @@ supabase.auth.onAuthStateChange((event, session) => {
       access_token: session.access_token,
       refresh_token: session.refresh_token,
     });
+    if (event === "SIGNED_IN") {
+      restoreActiveProject()
+        .then(() => refreshMenuTitles())
+        .catch(console.error);
+    }
   }
 
   if (event === "SIGNED_OUT") {
@@ -80,30 +92,32 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
 // ── Panel ↔ Background message bridge ────────────────────────────────────────
 
 async function getActiveProjectData() {
-  const stored = await storage.get([
-    "currentProjectId",
-    "currentProjectName",
-    "currentProjectDocId",
-    "currentProjectContext",
-  ]);
-  if (!stored.currentProjectId) return null;
+  const projectId = await getActiveProjectId();
+  if (!projectId) return null;
 
-  // Refresh from DB to get latest data
+  const stored = await storage.get(["currentProjectDocId"]);
+
   const { data } = await supabase
     .from("research_projects")
-    .select("id, name, google_doc_id, google_doc_title, description")
-    .eq("id", stored.currentProjectId)
+    .select("id, name, description")
+    .eq("id", projectId)
     .single();
 
   if (!data) return null;
 
+  const exportDocId =
+    stored.currentProjectDocId ?? (await fetchExportDocId(data.id));
+
+  const projectContextBundle = await buildProjectContextBundle(data.id, "analyze");
+
   return {
     id: data.id,
     name: data.name,
-    google_doc_id: data.google_doc_id,
-    google_doc_title: data.google_doc_title,
+    google_doc_id: exportDocId,
+    google_doc_title: null,
     description: data.description,
-    context: stored.currentProjectContext ?? null,
+    context: null,
+    projectContextBundle,
   };
 }
 
@@ -122,30 +136,6 @@ async function getAllProjects() {
   return data ?? [];
 }
 
-async function setActiveProject(projectId: string) {
-  const { error } = await (supabase.rpc as any)("set_active_project", {
-    project_id: projectId,
-  });
-  if (error) throw new Error(error.message);
-
-  const { data: project } = await supabase
-    .from("research_projects")
-    .select("id, name, google_doc_id, google_doc_title")
-    .eq("id", projectId)
-    .single();
-
-  if (project) {
-    await storage.set({
-      currentProjectId: project.id,
-      currentProjectName: project.name,
-      currentProjectDocId: project.google_doc_id ?? undefined,
-    });
-    await refreshMenuTitles();
-  }
-
-  return project;
-}
-
 async function saveHighlight(params: {
   selectedText: string;
   paperTitle: string;
@@ -162,8 +152,8 @@ async function saveHighlight(params: {
   };
   userNote?: string;
 }) {
-  const stored = await storage.get(["currentProjectId"]);
-  if (!stored.currentProjectId) throw new Error("No active project");
+  const projectId = await getActiveProjectId();
+  if (!projectId) throw new Error("No active project");
 
   const {
     data: { user },
@@ -175,7 +165,7 @@ async function saveHighlight(params: {
     .upsert(
       {
         user_id: user.id,
-        project_id: stored.currentProjectId,
+        project_id: projectId,
         paper_title: params.paperTitle,
         paper_url: params.paperUrl,
         paper_doi: params.paperDoi,
@@ -193,7 +183,7 @@ async function saveHighlight(params: {
   const highlightInsert: Record<string, unknown> = {
     user_id: user.id,
     paper_id: paper.id,
-    project_id: stored.currentProjectId,
+    project_id: projectId,
     highlight_text: params.selectedText,
     ai_summary: params.analysis.summary,
     ai_methodology: params.analysis.methodology,
@@ -235,13 +225,13 @@ async function checkCachedAnalysis(params: {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const stored = await storage.get(["currentProjectId"]);
+  const projectId = await getActiveProjectId();
 
   return getRecentAnalysisForPaper(
     params.selectionText,
     params.paperUrl,
     user.id,
-    stored.currentProjectId
+    projectId ?? undefined
   );
 }
 
@@ -313,8 +303,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   // Panel bridge: set active project
   if (message.type === "SWEARCH_SET_ACTIVE_PROJECT") {
-    setActiveProject(message.payload.projectId)
-      .then((data) => sendResponse({ data }))
+    persistActiveProject(message.payload.projectId)
+      .then(async (data) => {
+        await refreshMenuTitles();
+        sendResponse({ data });
+      })
       .catch((err) => sendResponse({ error: err.message }));
     return true;
   }
@@ -338,6 +331,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function onExtensionReady() {
   await restoreSession();
+  await restoreActiveProject();
   await registerContextMenus();
 }
 

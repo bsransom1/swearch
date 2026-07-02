@@ -6,6 +6,10 @@ node_modules/
 dist/
 .next/
 out/
+*.tsbuildinfo
+
+# Agent skills (reinstall via skills-lock.json)
+.agents/
 
 # Environment
 .env

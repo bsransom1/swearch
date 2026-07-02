@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import HighlightCard from "../../components/HighlightCard";
 import { signOut } from "../../lib/auth";
-import { appendBlocksToGoogleDoc } from "../../lib/google-docs";
+import { appendBlocksToGoogleDoc, resolveLinkedDocId } from "../../lib/google-docs";
+import { fetchProjectGoogleDocs } from "../../lib/project-google-docs";
 import { supabase } from "../../lib/supabase";
-import { storage } from "../../lib/storage";
+import { getActiveProjectId } from "../../lib/active-project";
 import {
   extractTagsFromSummary,
   formatRelativeTime,
@@ -52,14 +53,16 @@ function highlightToAnalysis(h: StoredHighlight): HighlightAnalysis {
 
 export default function HomeView({ onSettings }: Props) {
   const [project, setProject] = useState<any>(null);
+  const [linkedDocs, setLinkedDocs] = useState<any[]>([]);
+  const [exportDocId, setExportDocId] = useState<string | null>(null);
   const [recentHighlights, setRecentHighlights] = useState<StoredHighlight[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
-    const stored = await storage.get(["currentProjectId"]);
+    const projectId = await getActiveProjectId();
 
-    if (!stored.currentProjectId) {
+    if (!projectId) {
       setProject(null);
       setRecentHighlights([]);
       return;
@@ -67,22 +70,25 @@ export default function HomeView({ onSettings }: Props) {
 
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    const [{ data: projectData }, { data: highlights }] = await Promise.all([
+    const [{ data: projectData }, { data: highlights }, docs] = await Promise.all([
       supabase
         .from("research_projects")
         .select("*, papers_analyzed(count)")
-        .eq("id", stored.currentProjectId)
+        .eq("id", projectId)
         .single(),
       supabase
         .from("highlights")
         .select("*, papers_analyzed(paper_title, paper_url)")
-        .eq("project_id", stored.currentProjectId)
+        .eq("project_id", projectId)
         .gte("created_at", sevenDaysAgo)
         .order("created_at", { ascending: false })
         .limit(10),
+      fetchProjectGoogleDocs(projectId),
     ]);
 
     setProject(projectData);
+    setLinkedDocs(docs);
+    setExportDocId(docs.find((d) => d.role === "export" || d.role === "both")?.google_doc_id ?? null);
     setRecentHighlights((highlights as StoredHighlight[]) || []);
   }, []);
 
@@ -108,9 +114,9 @@ export default function HomeView({ onSettings }: Props) {
 
   async function handleExportHighlight(highlightId: string) {
     const highlight = recentHighlights.find((h) => h.id === highlightId);
-    const docId = project?.google_doc_id;
+    const docId = exportDocId ?? (await resolveLinkedDocId());
     if (!highlight || !docId) {
-      throw new Error("No Google Doc linked to this project.");
+      throw new Error("No export doc linked to this project.");
     }
 
     const analysis = highlightToAnalysis(highlight);
@@ -187,15 +193,10 @@ export default function HomeView({ onSettings }: Props) {
           ) : project ? (
             <>
               <p className="text-sm font-medium text-text-primary">{project.name}</p>
-              {project.google_doc_title && project.google_doc_id && (
-                <a
-                  href={`https://docs.google.com/document/d/${project.google_doc_id}/edit`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-text-secondary hover:text-accent mt-1.5 inline-block truncate max-w-full transition-colors"
-                >
-                  {project.google_doc_title}
-                </a>
+              {linkedDocs.length > 0 && (
+                <p className="text-xs text-text-secondary mt-1.5">
+                  {linkedDocs.length} linked doc{linkedDocs.length === 1 ? "" : "s"}
+                </p>
               )}
             </>
           ) : (
@@ -257,7 +258,7 @@ export default function HomeView({ onSettings }: Props) {
                       h.created_at ? formatRelativeTime(h.created_at) : "Unknown"
                     }
                     isExported={!!h.exported_to_google_doc}
-                    linkedDocId={project?.google_doc_id ?? undefined}
+                    linkedDocId={exportDocId ?? undefined}
                     onExport={handleExportHighlight}
                     onCopy={handleCopyHighlight}
                     onDelete={handleDeleteHighlight}

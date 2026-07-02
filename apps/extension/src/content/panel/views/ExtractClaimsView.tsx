@@ -4,7 +4,7 @@ import LoadingView from "./LoadingView";
 import ErrorView from "./ErrorView";
 import NoClaimsFoundFallback from "./NoClaimsFoundFallback";
 import CopyButton from "../components/CopyButton";
-import { bridge, type ActiveProject } from "../lib/bridge";
+import { bridge, type ActiveProject, projectContextParams } from "../lib/bridge";
 import type { ActionPayload } from "../lib/action-bus";
 import {
   BTN_PRIMARY,
@@ -37,8 +37,7 @@ export default function ExtractClaimsView({ payload, project, onSwitchAction }: 
         highlightText: payload.selectionText,
         paperTitle: payload.paperTitle,
         paperUrl: payload.paperUrl,
-        projectContext: project?.context ?? "",
-        projectName: project?.name ?? "Research Project",
+        ...projectContextParams(project),
       });
       setClaims(result.claims ?? []);
       setStatus("done");

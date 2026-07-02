@@ -119,6 +119,7 @@ export type Database = {
         Row: {
           created_at: string | null
           id: string
+          openalex_work_id: string | null
           project_id: string
           recommended_abstract: string | null
           recommended_authors: string[] | null
@@ -133,6 +134,7 @@ export type Database = {
         Insert: {
           created_at?: string | null
           id?: string
+          openalex_work_id?: string | null
           project_id: string
           recommended_abstract?: string | null
           recommended_authors?: string[] | null
@@ -147,6 +149,7 @@ export type Database = {
         Update: {
           created_at?: string | null
           id?: string
+          openalex_work_id?: string | null
           project_id?: string
           recommended_abstract?: string | null
           recommended_authors?: string[] | null
@@ -277,6 +280,69 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      project_google_docs: {
+        Row: {
+          cached_at: string | null
+          cached_text: string | null
+          created_at: string | null
+          google_doc_id: string
+          id: string
+          project_id: string
+          role: string
+          sort_order: number
+          summary: string | null
+          summary_at: string | null
+          title: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          cached_at?: string | null
+          cached_text?: string | null
+          created_at?: string | null
+          google_doc_id: string
+          id?: string
+          project_id: string
+          role: string
+          sort_order?: number
+          summary?: string | null
+          summary_at?: string | null
+          title: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          cached_at?: string | null
+          cached_text?: string | null
+          created_at?: string | null
+          google_doc_id?: string
+          id?: string
+          project_id?: string
+          role?: string
+          sort_order?: number
+          summary?: string | null
+          summary_at?: string | null
+          title?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_google_docs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "research_projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_google_docs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       research_projects: {
         Row: {

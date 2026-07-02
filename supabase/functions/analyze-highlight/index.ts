@@ -1,29 +1,42 @@
 import Anthropic from "npm:@anthropic-ai/sdk@0.24.0";
+import {
+  formatProjectContextForPrompt,
+  buildLightBundle,
+  type ProjectContextBundle,
+} from "../_shared/project-context.ts";
+import {
+  PANEL_MARKDOWN_FORMAT,
+  RELEVANCE_FIELD_FORMAT,
+} from "../_shared/response-formatting.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const FULL_SYSTEM_PROMPT = (projectName: string, projectContext?: string) =>
-  `You are a research assistant helping a researcher extract structured insights from academic papers.
+const FULL_SYSTEM_PROMPT = (projectName: string, contextSection: string) => {
+  return `You are a research assistant helping a researcher extract structured insights from academic papers.
 
 The researcher's active project is: "${projectName}"
 
-${projectContext ? `Here is an excerpt from their current working document for context:\n\n${projectContext.slice(0, 3000)}\n\n` : ""}
+${contextSection}
+
+${PANEL_MARKDOWN_FORMAT}
 
 When analyzing a highlight, return a JSON object with exactly these fields:
 - summary: A 2-3 sentence plain-English summary of what this highlight says
 - methodology: The research method used (null if not mentioned)
-- findings: The key finding or claim in this highlight (1-2 sentences)
+- findings: The key finding or claim in this highlight (1-2 sentences). May use **bold** for emphasis.
 - limitations: Any limitations acknowledged (null if not mentioned)
 - sample_size: Sample size or dataset size if mentioned (null if not mentioned)
-- relevance: How this is relevant (or not) to the researcher's project context (1-2 sentences)
+- relevance: How this is relevant (or not) to the researcher's project context — use the linked documents and highlights above. ${RELEVANCE_FIELD_FORMAT} If not relevant, say so clearly.
 - tags: Array of 2-4 keyword tags for this highlight
 
-Respond ONLY with valid JSON. No preamble, no markdown, no explanation.`;
+Respond ONLY with valid JSON. String values may contain Markdown (**bold**, lists). No code fences or text outside the JSON object.`;
+};
 
-const CLAIMS_SYSTEM_PROMPT = `You are a research assistant extracting key claims, assertions, and arguments from an academic excerpt. These include:
+const CLAIMS_SYSTEM_PROMPT = (contextSection: string) =>
+  `You are a research assistant extracting key claims, assertions, and arguments from an academic excerpt.${contextSection ? `\n\n${contextSection}` : ""} These include:
 - Factual claims about findings, methods, or data
 - Argumentative claims or positions the authors defend
 - Assertions about implications, significance, or contributions
@@ -78,7 +91,7 @@ Deno.serve(async (req) => {
       highlightText,
       paperTitle,
       paperUrl,
-      projectContext,
+      projectContextBundle,
       projectName,
       mode = "full",
     } = await req.json();
@@ -88,9 +101,22 @@ Deno.serve(async (req) => {
     });
 
     const isClaimsOnly = mode === "claims_only";
-    const systemPrompt = isClaimsOnly
-      ? CLAIMS_SYSTEM_PROMPT
-      : FULL_SYSTEM_PROMPT(projectName || "unspecified", projectContext);
+    const bundle: ProjectContextBundle | null = projectContextBundle ?? null;
+    const projectLabel = projectName || bundle?.project?.name || "unspecified";
+
+    let systemPrompt: string;
+    if (isClaimsOnly) {
+      const lightBundle = bundle ? buildLightBundle(bundle, "claims") : null;
+      const contextSection = lightBundle
+        ? formatProjectContextForPrompt(lightBundle, { includeDocContent: false })
+        : "";
+      systemPrompt = CLAIMS_SYSTEM_PROMPT(contextSection);
+    } else {
+      const contextSection = bundle
+        ? formatProjectContextForPrompt(bundle)
+        : "";
+      systemPrompt = FULL_SYSTEM_PROMPT(projectLabel, contextSection);
+    }
 
     const message = await client.messages.create({
       model: "claude-sonnet-4-6",

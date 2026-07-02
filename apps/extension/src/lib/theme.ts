@@ -46,14 +46,20 @@ export const QUOTE_BLOCK =
 export const SPINNER =
   "w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin flex-shrink-0";
 
+/** User message — Claude-style warm card, nearly full width, slightly right-shifted. */
 export const USER_BUBBLE =
-  "max-w-[75%] rounded-tl-lg rounded-tr-lg rounded-bl-lg rounded-br-sm px-3 py-2.5 text-sm bg-accent text-white shadow-bubble-user";
+  "w-full rounded-2xl px-4 py-3 text-sm font-sans bg-[#f3f3ee] text-text-primary";
 
-export const ASSISTANT_BUBBLE =
-  "max-w-[80%] rounded-lg px-3 py-2.5 text-sm bg-surface-1 border border-border-subtle text-text-primary shadow-tier-2";
+/** Assistant message — no bubble; full-width text on the chat background. */
+export const ASSISTANT_MESSAGE =
+  "w-full text-sm text-text-primary leading-relaxed";
 
 export const WELCOME_BUBBLE =
-  "max-w-full text-sm text-text-secondary leading-relaxed px-1";
+  "w-full text-sm text-text-secondary leading-relaxed";
+
+/** @deprecated Use ASSISTANT_MESSAGE — kept for panel views that still use a bubble. */
+export const ASSISTANT_BUBBLE =
+  "max-w-[80%] rounded-lg px-3 py-2.5 text-sm bg-surface-1 border border-border-subtle text-text-primary shadow-tier-2";
 
 export const INPUT_FIELD_POPUP =
   "bg-surface-0 border border-border-subtle rounded-md px-3 py-2.5 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent-50 transition-colors duration-150 disabled:opacity-60";
@@ -77,7 +83,7 @@ export const SUGGESTION_CHIP =
 
 /** Tab list "track" + trigger pill (Part 4) */
 export const TABS_LIST =
-  "grid w-full grid-cols-2 flex-shrink-0 bg-surface-1 rounded-lg p-1 gap-1";
+  "grid w-full grid-cols-2 flex-shrink-0 bg-surface-1 rounded-full p-1 gap-1";
 
 export const TABS_TRIGGER =
-  "rounded-md px-3 py-2 text-sm font-medium text-center min-w-0 text-text-secondary transition-colors duration-150 ease-out data-[state=active]:bg-accent data-[state=active]:text-white data-[state=active]:shadow-btn-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60";
+  "rounded-full px-3 py-2 text-sm font-medium text-center min-w-0 text-text-secondary transition-colors duration-150 ease-out data-[state=active]:bg-accent data-[state=active]:text-white data-[state=active]:shadow-btn-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60";

@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileText } from "lucide-react";
 import { supabase } from "../../lib/supabase";
-import { sendChatMessage, type ChatApiMessage, type ProjectChatContext } from "../../lib/claude";
-import { findRelatedPapers, type PaperRecommendation } from "../../lib/semantic-scholar";
-import { getCurrentPageMetadata, type PageMetadata } from "../../lib/page-context";
+import { sendChatMessage, findRelatedPapersViaEdge, type ChatApiMessage } from "../../lib/claude";
+import type { DiscoveredPaper } from "@swearch/shared/types/discovered-paper";
+import { getCurrentPageMetadata, canRecommendRelatedPapers, type PageMetadata } from "../../lib/page-context";
 import { getSessionHighlightIds } from "../../lib/session-tracking";
 import { formatRelativeTime, extractTagsFromSummary } from "../../lib/utils";
 import { parseHighlightAnalysis } from "@swearch/shared/types/highlight-analysis";
@@ -14,7 +13,19 @@ import SuggestedQuestions from "../components/chat/SuggestedQuestions";
 import { SUGGESTED_QUESTIONS } from "../constants";
 import type { ChatMessage } from "../components/chat/MessageBubble";
 import HighlightCard from "../../components/HighlightCard";
-import { appendBlocksToGoogleDoc } from "../../lib/google-docs";
+import { appendBlocksToGoogleDoc, resolveLinkedDocId } from "../../lib/google-docs";
+import {
+  fetchExportDocId,
+} from "../../lib/project-google-docs";
+import {
+  getActiveProject,
+  setActiveProject as persistActiveProject,
+} from "../../lib/active-project";
+import { buildProjectContextBundle } from "../../lib/project-context";
+import {
+  addPapersToProject,
+  findSourcePaperId,
+} from "../../lib/project-papers";
 import { SPINNER } from "../../lib/theme";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { buildHighlightExportBlocks } from "@swearch/shared/export/highlight-doc-blocks";
@@ -25,9 +36,6 @@ interface Project {
   id: string;
   name: string;
   description: string | null;
-  google_doc_id: string | null;
-  google_doc_title: string | null;
-  google_doc_cached_text: string | null;
 }
 
 interface StoredHighlight {
@@ -54,7 +62,7 @@ const WELCOME_MESSAGE: ChatMessage = {
   id: "welcome",
   role: "assistant",
   content:
-    "Hi! I'm Swearch. Ask me anything about your research, or right-click text on a paper to capture highlights.",
+    "Hi! I'm Swearch. Ask me anything about your research. I have context from your linked Google Docs, saved related papers, and captured highlights. Right-click text on a paper to capture more.",
   timestamp: new Date().toISOString(),
 };
 
@@ -80,8 +88,11 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
   const [sessionHighlights, setSessionHighlights] = useState<StoredHighlight[]>([]);
   const [sessionLoading, setSessionLoading] = useState(false);
 
-  // Page metadata for "Find related"
+  // Page metadata for related-papers discovery (brain icon)
   const [pageMetadata, setPageMetadata] = useState<PageMetadata | null>(null);
+  const [pageMetadataLoading, setPageMetadataLoading] = useState(true);
+  const [papersAddBusy, setPapersAddBusy] = useState(false);
+  const [exportDocId, setExportDocId] = useState<string | null>(null);
 
   // ── Restore chat from session storage ────────────────────────────────────────
   useEffect(() => {
@@ -117,18 +128,7 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
   async function loadActiveProject() {
     setProjectLoading(true);
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data } = await supabase
-        .from("research_projects")
-        .select("id, name, description, google_doc_id, google_doc_title, google_doc_cached_text")
-        .eq("user_id", user.id)
-        .eq("is_active", true)
-        .maybeSingle();
-
+      const data = await getActiveProject();
       setActiveProject(data as Project | null);
     } catch (e) {
       console.error("[Swearch] Failed to load project:", e);
@@ -148,7 +148,7 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
 
       const { data } = await supabase
         .from("research_projects")
-        .select("id, name, description, google_doc_id, google_doc_title, google_doc_cached_text")
+        .select("id, name, description")
         .eq("user_id", user.id)
         .order("updated_at", { ascending: false });
 
@@ -161,18 +161,10 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
   async function handleSwitchProject(projectId: string) {
     setSwitchingProject(true);
     try {
-      await (supabase.rpc as any)("set_active_project", { project_id: projectId });
-
-      const { data } = await supabase
-        .from("research_projects")
-        .select("id, name, description, google_doc_id, google_doc_title, google_doc_cached_text")
-        .eq("id", projectId)
-        .maybeSingle();
-
+      const data = await persistActiveProject(projectId);
       setActiveProject(data as Project | null);
       setShowProjectSwitcher(false);
 
-      // Notify service worker so context menu titles update
       chrome.runtime.sendMessage({ type: "SWEARCH_PROJECT_CHANGED" }).catch(() => {});
     } catch (e) {
       console.error("[Swearch] Failed to switch project:", e);
@@ -209,40 +201,42 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
     }
   }, [activeTab]);
 
-  // ── Page metadata ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    getCurrentPageMetadata()
-      .then(setPageMetadata)
-      .catch(() => {});
+  // ── Page metadata — parse active tab as soon as the popup opens
+  const refreshPageMetadata = useCallback(async () => {
+    setPageMetadataLoading(true);
+    try {
+      const data = await getCurrentPageMetadata();
+      setPageMetadata(data);
+    } catch {
+      setPageMetadata(null);
+    } finally {
+      setPageMetadataLoading(false);
+    }
   }, []);
 
-  // ── Build project context for Claude ─────────────────────────────────────────
-  const buildProjectContext = useCallback(async (): Promise<ProjectChatContext | null> => {
-    if (!activeProject) return null;
+  useEffect(() => {
+    void refreshPageMetadata();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void refreshPageMetadata();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [refreshPageMetadata]);
 
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return null;
-
-      const { data: highlights } = await supabase
-        .from("highlights")
-        .select("highlight_text")
-        .eq("user_id", user.id)
-        .eq("project_id", activeProject.id)
-        .order("created_at", { ascending: false })
-        .limit(5);
-
-      return {
-        name: activeProject.name,
-        description: activeProject.description,
-        docExcerpt: activeProject.google_doc_cached_text,
-        recentHighlights: (highlights || []).map((h) => h.highlight_text),
-      };
-    } catch {
-      return null;
+  useEffect(() => {
+    if (!activeProject) {
+      setExportDocId(null);
+      return;
     }
+    fetchExportDocId(activeProject.id).then(setExportDocId).catch(() => setExportDocId(null));
+  }, [activeProject?.id]);
+
+  // ── Build project context for Claude ─────────────────────────────────────────
+  const getContextBundle = useCallback(async () => {
+    if (!activeProject) return null;
+    return buildProjectContextBundle(activeProject.id, "chat");
   }, [activeProject]);
 
   // ── Send message ──────────────────────────────────────────────────────────────
@@ -259,11 +253,11 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
 
     try {
       const apiMessages: ChatApiMessage[] = updatedMessages
-        .filter((m) => m.id !== "welcome")
+        .filter((m) => m.id !== "welcome" && m.kind !== "papers")
         .map((m) => ({ role: m.role, content: m.content }));
 
-      const projectContext = await buildProjectContext();
-      const reply = await sendChatMessage(apiMessages, projectContext);
+      const projectContextBundle = await getContextBundle();
+      const reply = await sendChatMessage(apiMessages, projectContextBundle);
 
       setMessages((prev) => [
         ...prev,
@@ -289,39 +283,201 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
     }
   }
 
-  // ── Find related papers ───────────────────────────────────────────────────────
-  async function handleFindRelatedPapers() {
-    if (!pageMetadata) return;
-    setIsThinking(true);
+  // ── Brain: find related papers in chat ───────────────────────────────────────
+  async function handleBrainClick() {
+    const freshMeta = await getCurrentPageMetadata();
+    setPageMetadata(freshMeta);
+    if (!freshMeta || !canRecommendRelatedPapers(freshMeta)) return;
+
+    const titleLabel = freshMeta.paperTitle ?? "this page";
+    const userMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: "Find relevant papers to this one",
+      timestamp: new Date().toISOString(),
+      kind: "text",
+    };
+    const loadingId = crypto.randomUUID();
+    const loadingMsg: ChatMessage = {
+      id: loadingId,
+      role: "assistant",
+      content: `Searching OpenAlex for papers related to "${titleLabel}"…`,
+      timestamp: new Date().toISOString(),
+      kind: "papers",
+      papers: [],
+      isLoading: true,
+    };
+
+    setMessages((prev) => {
+      const history = prev.filter((m) => m.id !== "welcome");
+      return [userMsg, loadingMsg, ...history];
+    });
 
     try {
-      const query = pageMetadata.paperAbstract
-        ? `${pageMetadata.paperTitle} ${pageMetadata.paperAbstract.slice(0, 200)}`
-        : pageMetadata.paperTitle || "";
+      const bundle = activeProject
+        ? await buildProjectContextBundle(activeProject.id, "chat")
+        : null;
+      const { papers, searchQuery } = await findRelatedPapersViaEdge(freshMeta, bundle);
 
-      const results = await findRelatedPapers(query, 5);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === loadingId
+            ? {
+                ...m,
+                isLoading: false,
+                content: papers.length
+                  ? ""
+                  : "No related papers found. Try a paper with a clearer title or abstract.",
+                papers,
+                searchQuery,
+                addedOpenalexIds: [],
+              }
+            : m
+        )
+      );
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Search failed";
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === loadingId
+            ? {
+                ...m,
+                isLoading: false,
+                content: `Couldn't find papers: ${message}`,
+                papers: [],
+              }
+            : m
+        )
+      );
+    }
+  }
+
+  async function handleAddPaperToProject(messageId: string, paper: DiscoveredPaper) {
+    if (!activeProject) return;
+    setPapersAddBusy(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const sourcePaperId = pageMetadata?.paperUrl
+        ? await findSourcePaperId(activeProject.id, pageMetadata.paperUrl)
+        : null;
+
+      const { added, skipped } = await addPapersToProject({
+        projectId: activeProject.id,
+        userId: user.id,
+        papers: [paper],
+        sourcePaperId,
+      });
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                addedOpenalexIds: [...(m.addedOpenalexIds ?? []), paper.openalexId],
+              }
+            : m
+        )
+      );
+
+      const note =
+        added > 0
+          ? `Added "${paper.title}" to your project.`
+          : skipped > 0
+            ? `"${paper.title}" is already in your project.`
+            : `Could not add "${paper.title}".`;
 
       setMessages((prev) => [
         ...prev,
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: formatRelatedPapersMessage(results, pageMetadata.paperTitle),
+          content: note,
           timestamp: new Date().toISOString(),
+          kind: "text",
         },
       ]);
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Failed to add paper";
       setMessages((prev) => [
         ...prev,
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: `Couldn't find related papers: ${e.message}`,
+          content: message,
           timestamp: new Date().toISOString(),
+          kind: "text",
         },
       ]);
     } finally {
-      setIsThinking(false);
+      setPapersAddBusy(false);
+    }
+  }
+
+  async function handleAddAllPapersToProject(messageId: string, papers: DiscoveredPaper[]) {
+    if (!activeProject || papers.length === 0) return;
+    setPapersAddBusy(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const sourcePaperId = pageMetadata?.paperUrl
+        ? await findSourcePaperId(activeProject.id, pageMetadata.paperUrl)
+        : null;
+
+      const { added, skipped } = await addPapersToProject({
+        projectId: activeProject.id,
+        userId: user.id,
+        papers,
+        sourcePaperId,
+      });
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                addedOpenalexIds: [
+                  ...(m.addedOpenalexIds ?? []),
+                  ...papers.map((p) => p.openalexId),
+                ],
+              }
+            : m
+        )
+      );
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content:
+            added > 0
+              ? `Added ${added} paper${added === 1 ? "" : "s"} to your project${skipped ? ` (${skipped} already saved)` : ""}.`
+              : "Those papers are already in your project.",
+          timestamp: new Date().toISOString(),
+          kind: "text",
+        },
+      ]);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Failed to add papers";
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: message,
+          timestamp: new Date().toISOString(),
+          kind: "text",
+        },
+      ]);
+    } finally {
+      setPapersAddBusy(false);
     }
   }
 
@@ -334,8 +490,9 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
   // ── Highlight card callbacks (session tab) ────────────────────────────────────
   async function handleExportHighlight(id: string) {
     const h = sessionHighlights.find((x) => x.id === id);
-    if (!h || !activeProject?.google_doc_id) {
-      throw new Error("No Google Doc linked to this project.");
+    const docId = await resolveLinkedDocId();
+    if (!h || !docId) {
+      throw new Error("No export doc linked to this project.");
     }
     const parsed = h.ai_summary ? parseHighlightAnalysis(h.ai_summary) : null;
     const analysis = {
@@ -354,7 +511,7 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
       analysis,
       timestamp: h.created_at ? new Date(h.created_at).toLocaleString() : new Date().toLocaleString(),
     });
-    await appendBlocksToGoogleDoc(activeProject.google_doc_id, blocks);
+    await appendBlocksToGoogleDoc(docId, blocks);
     await supabase
       .from("highlights")
       .update({ exported_to_google_doc: true, google_doc_exported_at: new Date().toISOString() })
@@ -372,6 +529,9 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
 
   const showSuggestedQuestions = !messages.some((m) => m.role === "user");
 
+  const relatedPapersEnabled =
+    pageMetadataLoading || canRecommendRelatedPapers(pageMetadata);
+
   // ─── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -382,13 +542,15 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
           projectLoading={projectLoading}
           onChangeProject={handleOpenProjectSwitcher}
           onClearChat={handleClearChat}
+          isLikelyPaper={relatedPapersEnabled}
+          onOpenRelatedPapers={handleBrainClick}
         />
 
-        {/* Project switcher dropdown — top offset matches compact header (~88px) */}
+        {/* Project switcher dropdown — below single-row header */}
         {showProjectSwitcher && (
           <div
-            className="swearch-popover-in absolute left-3 right-3 bg-surface-0 border border-border-default rounded-lg shadow-tier-1 z-50 max-h-48 overflow-y-auto"
-            style={{ top: 88 }}
+            className="swearch-popover-in absolute left-4 right-4 bg-surface-0 border border-border-default rounded-lg shadow-tier-1 z-50 max-h-48 overflow-y-auto"
+            style={{ top: 48 }}
           >
             {allProjects.length === 0 ? (
               <p className="px-3 py-2 text-xs text-text-tertiary">Loading projects…</p>
@@ -429,26 +591,16 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
 
           <TabsContent
             value="chat"
-            className="swearch-fade-in flex flex-col flex-1 min-h-0 h-0 overflow-hidden"
+            className="flex flex-col flex-1 min-h-0 h-0 overflow-hidden outline-none"
           >
-            <MessageList messages={messages} isThinking={isThinking} />
-
-            {pageMetadata?.isLikelyPaper && (
-              <div className="mx-0 mb-2 px-3 py-2.5 bg-surface-1 border border-border-subtle rounded-lg shadow-tier-2 flex items-center justify-between flex-shrink-0">
-                <p className="text-xs text-text-secondary truncate flex-1 min-w-0 flex items-center gap-2">
-                  <FileText size={14} strokeWidth={2} className="flex-shrink-0 text-text-tertiary" />
-                  {pageMetadata.paperTitle}
-                </p>
-                <button
-                  type="button"
-                  onClick={handleFindRelatedPapers}
-                  disabled={isThinking}
-                  className="text-xs text-accent hover:text-accent-hover font-medium ml-2 flex-shrink-0 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-accent/60 rounded px-1"
-                >
-                  Find related →
-                </button>
-              </div>
-            )}
+            <MessageList
+              messages={messages}
+              isThinking={isThinking}
+              activeProjectId={activeProject?.id ?? null}
+              onAddPaper={handleAddPaperToProject}
+              onAddAllPapers={handleAddAllPapersToProject}
+              addBusy={papersAddBusy}
+            />
 
             {showSuggestedQuestions && (
               <SuggestedQuestions
@@ -463,12 +615,12 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
 
           <TabsContent
             value="session"
-            className="swearch-fade-in flex flex-col flex-1 min-h-0 h-0 overflow-hidden"
+            className="flex flex-col flex-1 min-h-0 h-0 overflow-hidden outline-none"
           >
             <SessionHighlightsTab
               highlights={sessionHighlights}
               loading={sessionLoading}
-              activeProject={activeProject}
+              exportDocId={exportDocId}
               onExport={handleExportHighlight}
               onDelete={handleDeleteHighlight}
             />
@@ -484,12 +636,12 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
 interface SessionTabProps {
   highlights: StoredHighlight[];
   loading: boolean;
-  activeProject: Project | null;
+  exportDocId: string | null;
   onExport: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }
 
-function SessionHighlightsTab({ highlights, loading, activeProject, onExport, onDelete }: SessionTabProps) {
+function SessionHighlightsTab({ highlights, loading, exportDocId, onExport, onDelete }: SessionTabProps) {
   if (loading) {
     return (
       <div className="flex-1 min-h-0 flex items-center justify-center">
@@ -539,7 +691,7 @@ function SessionHighlightsTab({ highlights, loading, activeProject, onExport, on
             sampleSize={analysis.sample_size ?? undefined}
             timestamp={h.created_at ? formatRelativeTime(h.created_at) : "Unknown"}
             isExported={!!h.exported_to_google_doc}
-            linkedDocId={activeProject?.google_doc_id ?? undefined}
+            linkedDocId={exportDocId ?? undefined}
             onExport={onExport}
             onCopy={async (text) => {
               await navigator.clipboard.writeText(text);
@@ -553,23 +705,3 @@ function SessionHighlightsTab({ highlights, loading, activeProject, onExport, on
   );
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatRelatedPapersMessage(
-  papers: PaperRecommendation[],
-  sourceTitle: string | null
-): string {
-  if (papers.length === 0) {
-    return `No related papers found for "${sourceTitle}".`;
-  }
-
-  const list = papers
-    .map((p, i) => {
-      const authors =
-        p.authors.slice(0, 2).join(", ") + (p.authors.length > 2 ? " et al." : "");
-      return `${i + 1}. **${p.title}** (${p.year})\n${authors} · ${p.citationCount} citations\n[View paper](${p.url})`;
-    })
-    .join("\n\n");
-
-  return `Related papers to **"${sourceTitle}"**:\n\n${list}`;
-}

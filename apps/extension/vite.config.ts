@@ -55,6 +55,15 @@ export default defineConfig(({ mode }) => {
         entryFileNames: "[name].js",
         chunkFileNames: "chunks/[name]-[hash].js",
         assetFileNames: "[name].[ext]",
+        manualChunks(id) {
+          // Keep content/background entries self-contained (no shared chunks).
+          if (id.includes("/content/") || id.includes("/background/")) {
+            return undefined;
+          }
+          if (id.includes("parse-page-metadata")) {
+            return "parse-page-metadata";
+          }
+        },
       },
     },
   },

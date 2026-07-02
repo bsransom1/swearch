@@ -3,7 +3,7 @@ import { AlertCircle, FileOutput } from "lucide-react";
 import LoadingView from "./LoadingView";
 import ErrorView from "./ErrorView";
 import NoActiveProjectView from "./NoActiveProjectView";
-import { bridge, type HighlightAnalysis, type ActiveProject } from "../lib/bridge";
+import { bridge, type HighlightAnalysis, type ActiveProject, projectContextParams } from "../lib/bridge";
 import {
   BTN_PRIMARY,
   CARD,
@@ -57,8 +57,7 @@ export default function AddToProjectView({
           highlightText: payload.selectionText,
           paperTitle: payload.paperTitle,
           paperUrl: payload.paperUrl,
-          projectContext: proj.context ?? "",
-          projectName: proj.name,
+          ...projectContextParams(proj),
         }));
 
       setAnalysis(result);

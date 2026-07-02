@@ -394,21 +394,16 @@ export async function appendBlocksToGoogleDoc(docId: string, blocks: DocBlock[])
 }
 
 export async function resolveLinkedDocId(): Promise<string | null> {
-  const stored = await new Promise<{ currentProjectDocId?: string; currentProjectId?: string }>(
-    (resolve) =>
-      chrome.storage.local.get(["currentProjectDocId", "currentProjectId"], resolve)
+  const stored = await new Promise<{ currentProjectDocId?: string }>((resolve) =>
+    chrome.storage.local.get(["currentProjectDocId"], resolve)
   );
 
   if (stored.currentProjectDocId) return stored.currentProjectDocId;
 
-  if (!stored.currentProjectId) return null;
+  const { getActiveProjectId } = await import("./active-project");
+  const projectId = await getActiveProjectId();
+  if (!projectId) return null;
 
-  const { supabase } = await import("./supabase");
-  const { data: project } = await supabase
-    .from("research_projects")
-    .select("google_doc_id")
-    .eq("id", stored.currentProjectId)
-    .maybeSingle();
-
-  return project?.google_doc_id ?? null;
+  const { fetchExportDocId } = await import("./project-google-docs");
+  return fetchExportDocId(projectId);
 }

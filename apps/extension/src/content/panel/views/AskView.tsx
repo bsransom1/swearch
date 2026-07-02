@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import { AlertCircle, Send, Sparkles } from "lucide-react";
 import CopyButton from "../components/CopyButton";
-import { bridge, type ActiveProject } from "../lib/bridge";
+import MarkdownContent from "../../../components/MarkdownContent";
+import { bridge, type ActiveProject, projectContextParams } from "../lib/bridge";
 import {
   ASSISTANT_BUBBLE,
   BTN_PRIMARY,
@@ -49,8 +50,7 @@ export default function AskView({ payload, project }: Props) {
         question: q,
         paperTitle: payload.paperTitle,
         paperUrl: payload.paperUrl,
-        projectContext: project?.context ?? "",
-        projectName: project?.name ?? "Research Project",
+        ...projectContextParams(project),
       });
 
       setThread((prev) => [...prev, { question: q, answer }]);
@@ -87,7 +87,7 @@ export default function AskView({ payload, project }: Props) {
                   <p className="flex items-center gap-2 text-accent mb-1.5">
                     <Sparkles size={14} strokeWidth={2} className="flex-shrink-0" />
                   </p>
-                  {qa.answer}
+                  <MarkdownContent content={qa.answer} variant="panel" />
                 </div>
               </div>
             </div>
