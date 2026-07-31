@@ -102,6 +102,16 @@ export const bridge = {
     userNote?: string;
   }) => callBackground<{ id: string | null }>("SWEARCH_SAVE_HIGHLIGHT", params),
 
+  exportHighlightToDoc: (params: {
+    selectedText: string;
+    paperTitle: string;
+    paperUrl: string;
+    paperDoi: string | null;
+    analysis: HighlightAnalysis;
+    userNote?: string;
+  }) =>
+    callBackground<{ docId: string; docTitle: string }>("SWEARCH_EXPORT_HIGHLIGHT", params),
+
   checkCached: (params: {
     paperUrl: string;
     selectionText: string;

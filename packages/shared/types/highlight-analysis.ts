@@ -140,3 +140,101 @@ export function getAnalysisSections(analysis: HighlightAnalysis) {
     content: analysis[key],
   })).filter((section) => section.content);
 }
+
+export type ProjectHighlightInsightKind =
+  | "relevance"
+  | "findings"
+  | "methodology"
+  | "limitations"
+  | "summary";
+
+export interface ProjectHighlightInsight {
+  kind: ProjectHighlightInsightKind;
+  label: string;
+  text: string;
+}
+
+const PROJECT_INSIGHT_LABELS: Record<ProjectHighlightInsightKind, string> = {
+  relevance: "For your project",
+  findings: "Key finding",
+  methodology: "Methodology",
+  limitations: "Limitation",
+  summary: "Summary",
+};
+
+function trimOrNull(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const text = value.trim();
+  return text.length > 0 ? text : null;
+}
+
+function projectInsight(
+  kind: ProjectHighlightInsightKind,
+  text: string
+): ProjectHighlightInsight {
+  return { kind, label: PROJECT_INSIGHT_LABELS[kind], text };
+}
+
+/** Picks a single display insight for Project tab highlight cards (relevance first). */
+export function resolveProjectHighlightInsight(h: {
+  ai_summary: string | null;
+  ai_findings: string | null;
+  ai_methodology: string | null;
+  ai_limitations: string | null;
+  ai_relevance: string | null;
+}): ProjectHighlightInsight | null {
+  const parsed = h.ai_summary ? parseHighlightAnalysis(h.ai_summary) : null;
+
+  const relevance = trimOrNull(h.ai_relevance) ?? trimOrNull(parsed?.relevance ?? null);
+  if (relevance) return projectInsight("relevance", relevance);
+
+  const findings = trimOrNull(h.ai_findings) ?? trimOrNull(parsed?.findings ?? null);
+  if (findings) return projectInsight("findings", findings);
+
+  const methodology =
+    trimOrNull(h.ai_methodology) ?? trimOrNull(parsed?.methodology ?? null);
+  if (methodology) return projectInsight("methodology", methodology);
+
+  const limitations =
+    trimOrNull(h.ai_limitations) ?? trimOrNull(parsed?.limitations ?? null);
+  if (limitations) return projectInsight("limitations", limitations);
+
+  const parsedSummary = trimOrNull(parsed?.summary);
+  if (parsedSummary) return projectInsight("summary", parsedSummary);
+
+  const rawSummary = trimOrNull(h.ai_summary);
+  if (rawSummary && !extractJsonObject(rawSummary)) {
+    return projectInsight("summary", rawSummary);
+  }
+
+  return null;
+}
+
+export type HighlightDisplayType =
+  | "Summary"
+  | "Key Finding"
+  | "Methodology"
+  | "Limitation"
+  | "Highlight";
+
+/** Infers the primary display badge type from raw DB fields. */
+export function inferHighlightType(h: {
+  ai_findings: string | null;
+  ai_methodology: string | null;
+  ai_limitations: string | null;
+  ai_summary: string | null;
+}): HighlightDisplayType {
+  if (h.ai_findings?.trim()) return "Key Finding";
+  if (h.ai_methodology?.trim()) return "Methodology";
+  if (h.ai_limitations?.trim()) return "Limitation";
+  if (h.ai_summary?.trim()) return "Summary";
+  return "Highlight";
+}
+
+export const HIGHLIGHT_DISPLAY_BADGE_CLASS: Record<HighlightDisplayType, string> = {
+  Summary: "bg-accent-50 text-accent border-accent-200",
+  "Key Finding": "bg-accent-50 text-accent border-accent-200",
+  Methodology: "bg-surface-2 text-text-secondary border-border-subtle",
+  Limitation: "bg-amber-50 text-amber border-amber-200",
+  Highlight: "bg-surface-2 text-text-secondary border-border-subtle",
+};

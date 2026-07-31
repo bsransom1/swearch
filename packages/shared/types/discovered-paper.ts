@@ -23,4 +23,5 @@ export interface PageContextPayload {
 export interface FindRelatedPapersResult {
   papers: DiscoveredPaper[];
   searchQuery: string;
+  total: number;
 }

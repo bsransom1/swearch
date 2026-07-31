@@ -32,12 +32,17 @@ describe("auth configuration alignment", () => {
   const extEnv = readEnvFile(resolve(ROOT, "apps/extension/.env.local"));
 
   it("extension dist includes auth-sync content script and externally_connectable", () => {
+    // The store build strips localhost from the origin list, so assert on shape
+    // and consistency rather than on a specific origin.
     const authSyncScript = manifest.content_scripts?.find((cs: { js?: string[] }) =>
       cs.js?.includes("content/auth-sync.js")
     );
     expect(authSyncScript).toBeTruthy();
-    expect(authSyncScript.matches).toContain("http://localhost:3000/*");
-    expect(manifest.externally_connectable?.matches).toContain("http://localhost:3000/*");
+    expect(authSyncScript.matches.length).toBeGreaterThan(0);
+    for (const pattern of authSyncScript.matches) {
+      expect(pattern).toMatch(/^https?:\/\/[^/]+\/\*$/);
+    }
+    expect(manifest.externally_connectable?.matches).toEqual(authSyncScript.matches);
   });
 
   it("built auth-sync and service worker artifacts exist", () => {
@@ -106,9 +111,10 @@ describe("auth configuration alignment", () => {
     expect(manifest.oauth2.client_id).toBe(extEnv.VITE_GOOGLE_CLIENT_ID);
   });
 
-  it("default web origins resolve to localhost dev pattern", () => {
+  it("configured web origins include localhost dev and resolve to match patterns", () => {
     const origins = parseWebAppOrigins(extEnv.VITE_WEB_APP_ORIGINS);
     expect(origins).toContain("http://localhost:3000");
-    expect(originToMatchPattern(origins[0])).toBe("http://localhost:3000/*");
+    expect(originToMatchPattern("http://localhost:3000")).toBe("http://localhost:3000/*");
+    expect(origins.map(originToMatchPattern)).toContain("https://swearch.app/*");
   });
 });

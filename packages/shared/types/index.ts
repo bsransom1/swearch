@@ -1,5 +1,9 @@
 export type { Database, Json } from "./database";
-export type { HighlightAnalysis } from "./highlight-analysis";
+export type {
+  HighlightAnalysis,
+  ProjectHighlightInsight,
+  ProjectHighlightInsightKind,
+} from "./highlight-analysis";
 export type {
   ProjectGoogleDoc,
   ProjectGoogleDocRole,
@@ -38,6 +42,7 @@ export {
   extractJsonObject,
   getAnalysisSections,
   parseHighlightAnalysis,
+  resolveProjectHighlightInsight,
   HIGHLIGHT_ANALYSIS_SECTIONS,
 } from "./highlight-analysis";
 

@@ -83,7 +83,7 @@ export const SUGGESTION_CHIP =
 
 /** Tab list "track" + trigger pill (Part 4) */
 export const TABS_LIST =
-  "grid w-full grid-cols-2 flex-shrink-0 bg-surface-1 rounded-full p-1 gap-1";
+  "grid w-full grid-cols-3 flex-shrink-0 bg-surface-1 rounded-full p-0.5 gap-0.5";
 
 export const TABS_TRIGGER =
-  "rounded-full px-3 py-2 text-sm font-medium text-center min-w-0 text-text-secondary transition-colors duration-150 ease-out data-[state=active]:bg-accent data-[state=active]:text-white data-[state=active]:shadow-btn-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60";
+  "rounded-full px-2 py-1 text-xs font-medium text-center min-w-0 truncate text-text-secondary transition-colors duration-150 ease-out data-[state=active]:bg-accent data-[state=active]:text-white data-[state=active]:shadow-btn-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60";

@@ -13,7 +13,7 @@ import SuggestedQuestions from "../components/chat/SuggestedQuestions";
 import { SUGGESTED_QUESTIONS } from "../constants";
 import type { ChatMessage } from "../components/chat/MessageBubble";
 import HighlightCard from "../../components/HighlightCard";
-import { appendBlocksToGoogleDoc, resolveLinkedDocId } from "../../lib/google-docs";
+import { appendHighlightExportToGoogleDoc, resolveLinkedDocId } from "../../lib/google-docs";
 import {
   fetchExportDocId,
 } from "../../lib/project-google-docs";
@@ -25,10 +25,15 @@ import { buildProjectContextBundle } from "../../lib/project-context";
 import {
   addPapersToProject,
   findSourcePaperId,
+  fetchProjectPaperRecommendations,
 } from "../../lib/project-papers";
 import { SPINNER } from "../../lib/theme";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
-import { buildHighlightExportBlocks } from "@swearch/shared/export/highlight-doc-blocks";
+import { toHighlightExportInput } from "@swearch/shared/export/highlight-doc-blocks";
+import { CONTEXT_LIMITS } from "@swearch/shared/constants/context-limits";
+import { useShellMode } from "../lib/shell-mode";
+import { chatStorageKey, LEGACY_CHAT_SESSION_KEY } from "../../lib/chat-session";
+import ProjectTab from "./ProjectTab";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,11 +57,7 @@ interface StoredHighlight {
   papers_analyzed: { paper_title: string; paper_url: string } | null;
 }
 
-type Tab = "chat" | "session";
-
-// ─── Session chat persistence ─────────────────────────────────────────────────
-
-const CHAT_SESSION_KEY = "swearchChatHistory";
+type Tab = "chat" | "project" | "session";
 
 const WELCOME_MESSAGE: ChatMessage = {
   id: "welcome",
@@ -66,13 +67,21 @@ const WELCOME_MESSAGE: ChatMessage = {
   timestamp: new Date().toISOString(),
 };
 
+function freshWelcome(): ChatMessage {
+  return { ...WELCOME_MESSAGE, timestamp: new Date().toISOString() };
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function ChatView({ onSettings }: { onSettings: () => void }) {
   // Chat state
-  const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
+  const [messages, setMessages] = useState<ChatMessage[]>([freshWelcome()]);
   const [isThinking, setIsThinking] = useState(false);
   const messagesInitialised = useRef(false);
+  /** Project id the current `messages` array belongs to (for scoped persistence). */
+  const chatBoundProjectIdRef = useRef<string | null | undefined>(undefined);
+  /** Bumped on project switch so in-flight replies don't land in the new chat. */
+  const chatEpochRef = useRef(0);
 
   // Project state
   const [activeProject, setActiveProject] = useState<Project | null>(null);
@@ -92,50 +101,88 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
   const [pageMetadata, setPageMetadata] = useState<PageMetadata | null>(null);
   const [pageMetadataLoading, setPageMetadataLoading] = useState(true);
   const [papersAddBusy, setPapersAddBusy] = useState(false);
+  const [papersSearchBusy, setPapersSearchBusy] = useState(false);
+  const [papersSearchCooldownUntil, setPapersSearchCooldownUntil] = useState(0);
+  const papersSearchInFlightRef = useRef(false);
   const [exportDocId, setExportDocId] = useState<string | null>(null);
 
-  // ── Restore chat from session storage ────────────────────────────────────────
-  useEffect(() => {
-    async function restoreChat() {
-      try {
-        const result = await chrome.storage.session.get([CHAT_SESSION_KEY]);
-        const stored = result[CHAT_SESSION_KEY] as ChatMessage[] | undefined;
-        if (stored && stored.length > 0) {
-          setMessages(stored);
-        }
-      } catch {
-        // session storage may be unavailable — start fresh
-      }
-      messagesInitialised.current = true;
-    }
-    restoreChat();
+  const resetChatUiState = useCallback(() => {
+    chatEpochRef.current += 1;
+    setIsThinking(false);
+    setPapersAddBusy(false);
+    setPapersSearchBusy(false);
+    papersSearchInFlightRef.current = false;
   }, []);
 
-  // Persist chat after every update (skip initial restore pass)
+  const loadChatForProject = useCallback(async (projectId: string | null) => {
+    messagesInitialised.current = false;
+    const key = chatStorageKey(projectId);
+    try {
+      const result = await chrome.storage.session.get([key, LEGACY_CHAT_SESSION_KEY]);
+      let stored = result[key] as ChatMessage[] | undefined;
+
+      // One-time migration: adopt legacy unscoped history for the first project load.
+      if ((!stored || stored.length === 0) && projectId) {
+        const legacy = result[LEGACY_CHAT_SESSION_KEY] as ChatMessage[] | undefined;
+        if (legacy && legacy.length > 0) {
+          stored = legacy;
+          await chrome.storage.session.set({ [key]: legacy });
+          await chrome.storage.session.remove([LEGACY_CHAT_SESSION_KEY]);
+        }
+      }
+
+      setMessages(stored && stored.length > 0 ? stored : [freshWelcome()]);
+    } catch {
+      setMessages([freshWelcome()]);
+    }
+    chatBoundProjectIdRef.current = projectId;
+    messagesInitialised.current = true;
+  }, []);
+
+  const persistBoundChat = useCallback(async (msgs: ChatMessage[]) => {
+    const projectId = chatBoundProjectIdRef.current;
+    if (projectId === undefined) return;
+    if (msgs.length <= 1 && msgs[0]?.id === "welcome") return;
+    try {
+      await chrome.storage.session.set({ [chatStorageKey(projectId)]: msgs });
+    } catch {
+      // session storage may be unavailable
+    }
+  }, []);
+
+  // Persist chat after every update (skip while loading another project's history)
   useEffect(() => {
     if (!messagesInitialised.current) return;
-    if (messages.length <= 1 && messages[0]?.id === "welcome") return;
-    chrome.storage.session
-      .set({ [CHAT_SESSION_KEY]: messages })
-      .catch(() => {});
-  }, [messages]);
+    void persistBoundChat(messages);
+  }, [messages, persistBoundChat]);
 
-  // ── Load active project ───────────────────────────────────────────────────────
   useEffect(() => {
-    loadActiveProject();
-  }, []);
+    if (papersSearchCooldownUntil <= Date.now()) return;
+    const timer = window.setInterval(() => {
+      if (Date.now() >= papersSearchCooldownUntil) {
+        setPapersSearchCooldownUntil(0);
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [papersSearchCooldownUntil]);
 
-  async function loadActiveProject() {
-    setProjectLoading(true);
-    try {
-      const data = await getActiveProject();
-      setActiveProject(data as Project | null);
-    } catch (e) {
-      console.error("[Swearch] Failed to load project:", e);
-    } finally {
-      setProjectLoading(false);
+  // ── Load active project + its chat history ────────────────────────────────────
+  useEffect(() => {
+    async function init() {
+      setProjectLoading(true);
+      try {
+        const data = await getActiveProject();
+        setActiveProject(data as Project | null);
+        await loadChatForProject(data?.id ?? null);
+      } catch (e) {
+        console.error("[Swearch] Failed to load project:", e);
+        await loadChatForProject(null);
+      } finally {
+        setProjectLoading(false);
+      }
     }
-  }
+    void init();
+  }, [loadChatForProject]);
 
   // ── Project switcher ──────────────────────────────────────────────────────────
   async function handleOpenProjectSwitcher() {
@@ -159,11 +206,26 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
   }
 
   async function handleSwitchProject(projectId: string) {
+    if (projectId === activeProject?.id) {
+      setShowProjectSwitcher(false);
+      return;
+    }
+
     setSwitchingProject(true);
     try {
+      // Flush the current project's chat before rebinding UI state.
+      if (messagesInitialised.current) {
+        await persistBoundChat(messages);
+      }
+
+      resetChatUiState();
+
       const data = await persistActiveProject(projectId);
       setActiveProject(data as Project | null);
       setShowProjectSwitcher(false);
+
+      // Reload chat UI + session history scoped to the new project.
+      await loadChatForProject(projectId);
 
       chrome.runtime.sendMessage({ type: "SWEARCH_PROJECT_CHANGED" }).catch(() => {});
     } catch (e) {
@@ -241,6 +303,7 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
 
   // ── Send message ──────────────────────────────────────────────────────────────
   async function handleSend(text: string) {
+    const epoch = chatEpochRef.current;
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
@@ -259,6 +322,8 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
       const projectContextBundle = await getContextBundle();
       const reply = await sendChatMessage(apiMessages, projectContextBundle);
 
+      if (chatEpochRef.current !== epoch) return;
+
       setMessages((prev) => [
         ...prev,
         {
@@ -269,6 +334,7 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
         },
       ]);
     } catch (e: any) {
+      if (chatEpochRef.current !== epoch) return;
       setMessages((prev) => [
         ...prev,
         {
@@ -279,17 +345,26 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
         },
       ]);
     } finally {
-      setIsThinking(false);
+      if (chatEpochRef.current === epoch) {
+        setIsThinking(false);
+      }
     }
   }
 
   // ── Brain: find related papers in chat ───────────────────────────────────────
   async function handleBrainClick() {
+    if (papersSearchInFlightRef.current || papersSearchBusy) return;
+    if (Date.now() < papersSearchCooldownUntil) return;
+
     const freshMeta = await getCurrentPageMetadata();
     setPageMetadata(freshMeta);
     if (!freshMeta || !canRecommendRelatedPapers(freshMeta)) return;
 
-    const titleLabel = freshMeta.paperTitle ?? "this page";
+    const epoch = chatEpochRef.current;
+    const projectIdAtStart = activeProject?.id ?? null;
+    papersSearchInFlightRef.current = true;
+    setPapersSearchBusy(true);
+
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
@@ -301,7 +376,7 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
     const loadingMsg: ChatMessage = {
       id: loadingId,
       role: "assistant",
-      content: `Searching OpenAlex for papers related to "${titleLabel}"…`,
+      content: "",
       timestamp: new Date().toISOString(),
       kind: "papers",
       papers: [],
@@ -310,14 +385,24 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
 
     setMessages((prev) => {
       const history = prev.filter((m) => m.id !== "welcome");
-      return [userMsg, loadingMsg, ...history];
+      return [...history, userMsg, loadingMsg];
     });
 
     try {
-      const bundle = activeProject
-        ? await buildProjectContextBundle(activeProject.id, "chat")
-        : null;
-      const { papers, searchQuery } = await findRelatedPapersViaEdge(freshMeta, bundle);
+      const [bundle, savedRecommendations] = await Promise.all([
+        projectIdAtStart ? buildProjectContextBundle(projectIdAtStart, "chat") : null,
+        projectIdAtStart ? fetchProjectPaperRecommendations(projectIdAtStart) : [],
+      ]);
+
+      if (chatEpochRef.current !== epoch) return;
+
+      const savedOpenalexIds = savedRecommendations
+        .map((p) => p.openalex_work_id)
+        .filter((id): id is string => !!id);
+
+      const { papers, searchQuery, total } = await findRelatedPapersViaEdge(freshMeta, bundle);
+
+      if (chatEpochRef.current !== epoch) return;
 
       setMessages((prev) =>
         prev.map((m) =>
@@ -330,12 +415,14 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
                   : "No related papers found. Try a paper with a clearer title or abstract.",
                 papers,
                 searchQuery,
-                addedOpenalexIds: [],
+                papersTotal: total,
+                addedOpenalexIds: savedOpenalexIds,
               }
             : m
         )
       );
     } catch (e: unknown) {
+      if (chatEpochRef.current !== epoch) return;
       const message = e instanceof Error ? e.message : "Search failed";
       setMessages((prev) =>
         prev.map((m) =>
@@ -349,11 +436,21 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
             : m
         )
       );
+    } finally {
+      if (chatEpochRef.current === epoch) {
+        papersSearchInFlightRef.current = false;
+        setPapersSearchBusy(false);
+      }
+      setPapersSearchCooldownUntil(
+        Date.now() + CONTEXT_LIMITS.relatedPapersSearchCooldownMs
+      );
     }
   }
 
   async function handleAddPaperToProject(messageId: string, paper: DiscoveredPaper) {
     if (!activeProject) return;
+    const epoch = chatEpochRef.current;
+    const projectId = activeProject.id;
     setPapersAddBusy(true);
     try {
       const {
@@ -362,15 +459,17 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
       if (!user) throw new Error("Not authenticated");
 
       const sourcePaperId = pageMetadata?.paperUrl
-        ? await findSourcePaperId(activeProject.id, pageMetadata.paperUrl)
+        ? await findSourcePaperId(projectId, pageMetadata.paperUrl)
         : null;
 
       const { added, skipped } = await addPapersToProject({
-        projectId: activeProject.id,
+        projectId,
         userId: user.id,
         papers: [paper],
         sourcePaperId,
       });
+
+      if (chatEpochRef.current !== epoch) return;
 
       setMessages((prev) =>
         prev.map((m) =>
@@ -401,6 +500,7 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
         },
       ]);
     } catch (e: unknown) {
+      if (chatEpochRef.current !== epoch) return;
       const message = e instanceof Error ? e.message : "Failed to add paper";
       setMessages((prev) => [
         ...prev,
@@ -413,78 +513,20 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
         },
       ]);
     } finally {
-      setPapersAddBusy(false);
-    }
-  }
-
-  async function handleAddAllPapersToProject(messageId: string, papers: DiscoveredPaper[]) {
-    if (!activeProject || papers.length === 0) return;
-    setPapersAddBusy(true);
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      const sourcePaperId = pageMetadata?.paperUrl
-        ? await findSourcePaperId(activeProject.id, pageMetadata.paperUrl)
-        : null;
-
-      const { added, skipped } = await addPapersToProject({
-        projectId: activeProject.id,
-        userId: user.id,
-        papers,
-        sourcePaperId,
-      });
-
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === messageId
-            ? {
-                ...m,
-                addedOpenalexIds: [
-                  ...(m.addedOpenalexIds ?? []),
-                  ...papers.map((p) => p.openalexId),
-                ],
-              }
-            : m
-        )
-      );
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content:
-            added > 0
-              ? `Added ${added} paper${added === 1 ? "" : "s"} to your project${skipped ? ` (${skipped} already saved)` : ""}.`
-              : "Those papers are already in your project.",
-          timestamp: new Date().toISOString(),
-          kind: "text",
-        },
-      ]);
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "Failed to add papers";
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: message,
-          timestamp: new Date().toISOString(),
-          kind: "text",
-        },
-      ]);
-    } finally {
-      setPapersAddBusy(false);
+      if (chatEpochRef.current === epoch) {
+        setPapersAddBusy(false);
+      }
     }
   }
 
   // ── Clear chat ────────────────────────────────────────────────────────────────
   function handleClearChat() {
-    setMessages([{ ...WELCOME_MESSAGE, timestamp: new Date().toISOString() }]);
-    chrome.storage.session.remove([CHAT_SESSION_KEY]).catch(() => {});
+    resetChatUiState();
+    setMessages([freshWelcome()]);
+    const projectId = chatBoundProjectIdRef.current;
+    if (projectId !== undefined) {
+      chrome.storage.session.remove([chatStorageKey(projectId)]).catch(() => {});
+    }
   }
 
   // ── Highlight card callbacks (session tab) ────────────────────────────────────
@@ -504,14 +546,14 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
       sample_size: h.ai_sample_size ?? null,
       tags: parsed?.tags || [],
     };
-    const blocks = buildHighlightExportBlocks({
+    const input = toHighlightExportInput({
       paperTitle: h.papers_analyzed?.paper_title || "Unknown",
       paperUrl: h.papers_analyzed?.paper_url || "",
       highlightText: h.highlight_text,
       analysis,
       timestamp: h.created_at ? new Date(h.created_at).toLocaleString() : new Date().toLocaleString(),
     });
-    await appendBlocksToGoogleDoc(docId, blocks);
+    await appendHighlightExportToGoogleDoc(docId, input);
     await supabase
       .from("highlights")
       .update({ exported_to_google_doc: true, google_doc_exported_at: new Date().toISOString() })
@@ -532,10 +574,20 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
   const relatedPapersEnabled =
     pageMetadataLoading || canRecommendRelatedPapers(pageMetadata);
 
+  const relatedPapersCooldownSeconds =
+    papersSearchCooldownUntil > Date.now()
+      ? Math.ceil((papersSearchCooldownUntil - Date.now()) / 1000)
+      : 0;
+
+  const isSidebar = useShellMode() === "sidebar";
+  const innerShellClass = isSidebar
+    ? "relative flex flex-col min-h-0 flex-1 h-full bg-surface-0 overflow-hidden"
+    : "relative flex flex-col min-h-0 flex-1 h-full bg-surface-0 border border-border-default rounded-xl shadow-tier-1 overflow-hidden";
+
   // ─── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="relative flex flex-col min-h-0 flex-1 h-full bg-surface-0 border border-border-default rounded-xl shadow-tier-1 overflow-hidden">
+      <div className={innerShellClass}>
         <ChatHeader
           onSettings={onSettings}
           activeProject={activeProject}
@@ -543,13 +595,17 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
           onChangeProject={handleOpenProjectSwitcher}
           onClearChat={handleClearChat}
           isLikelyPaper={relatedPapersEnabled}
+          relatedPapersBusy={papersSearchBusy}
+          relatedPapersCooldownSeconds={relatedPapersCooldownSeconds}
           onOpenRelatedPapers={handleBrainClick}
         />
 
         {/* Project switcher dropdown — below single-row header */}
         {showProjectSwitcher && (
           <div
-            className="swearch-popover-in absolute left-4 right-4 bg-surface-0 border border-border-default rounded-lg shadow-tier-1 z-50 max-h-48 overflow-y-auto"
+            className={`swearch-popover-in absolute bg-surface-0 border border-border-default rounded-lg shadow-tier-1 z-50 max-h-48 overflow-y-auto ${
+              isSidebar ? "left-5 right-5" : "left-4 right-4"
+            }`}
             style={{ top: 48 }}
           >
             {allProjects.length === 0 ? (
@@ -582,23 +638,26 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
         <Tabs
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as Tab)}
-          className="flex flex-col flex-1 min-h-0 overflow-hidden px-4"
+          className="flex flex-col flex-1 min-h-0 overflow-hidden"
         >
-          <TabsList className="mt-2 mb-2">
-            <TabsTrigger value="chat">Chat</TabsTrigger>
-            <TabsTrigger value="session">Session</TabsTrigger>
-          </TabsList>
+          <div className={`flex-shrink-0 mt-2 mb-2 ${isSidebar ? "px-5" : "px-4"}`}>
+            <TabsList>
+              <TabsTrigger value="chat">Chat</TabsTrigger>
+              <TabsTrigger value="project">Project</TabsTrigger>
+              <TabsTrigger value="session">Session</TabsTrigger>
+            </TabsList>
+          </div>
 
           <TabsContent
             value="chat"
             className="flex flex-col flex-1 min-h-0 h-0 overflow-hidden outline-none"
           >
             <MessageList
+              key={activeProject?.id ?? "no-project"}
               messages={messages}
               isThinking={isThinking}
               activeProjectId={activeProject?.id ?? null}
               onAddPaper={handleAddPaperToProject}
-              onAddAllPapers={handleAddAllPapersToProject}
               addBusy={papersAddBusy}
             />
 
@@ -611,6 +670,17 @@ export default function ChatView({ onSettings }: { onSettings: () => void }) {
             )}
 
             <ChatInput onSend={handleSend} disabled={isThinking} />
+          </TabsContent>
+
+          <TabsContent
+            value="project"
+            className="flex flex-col flex-1 min-h-0 h-0 overflow-hidden outline-none"
+          >
+            <ProjectTab
+              projectId={activeProject?.id ?? null}
+              projectName={activeProject?.name ?? null}
+              isActive={activeTab === "project"}
+            />
           </TabsContent>
 
           <TabsContent
@@ -642,6 +712,9 @@ interface SessionTabProps {
 }
 
 function SessionHighlightsTab({ highlights, loading, exportDocId, onExport, onDelete }: SessionTabProps) {
+  const isSidebar = useShellMode() === "sidebar";
+  const contentPad = isSidebar ? "px-5" : "px-4";
+
   if (loading) {
     return (
       <div className="flex-1 min-h-0 flex items-center justify-center">
@@ -663,7 +736,8 @@ function SessionHighlightsTab({ highlights, loading, exportDocId, onExport, onDe
   }
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto py-1 space-y-3">
+    <div className="flex-1 min-h-0 overflow-y-auto py-1">
+      <div className={`space-y-3 ${contentPad}`}>
       {highlights.map((h) => {
         const parsed = h.ai_summary ? parseHighlightAnalysis(h.ai_summary) : null;
         const analysis = {
@@ -701,6 +775,7 @@ function SessionHighlightsTab({ highlights, loading, exportDocId, onExport, onDe
           />
         );
       })}
+      </div>
     </div>
   );
 }

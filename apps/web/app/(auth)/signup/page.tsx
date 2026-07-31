@@ -31,7 +31,7 @@ export default function SignupPage() {
       return;
     }
 
-    router.push("/dashboard");
+    router.push("/projects");
     router.refresh();
   }
 
@@ -44,7 +44,7 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface-0 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-surface-bg flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-2 mb-8">
           <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center">
@@ -60,7 +60,7 @@ export default function SignupPage() {
 
         <button
           onClick={handleGoogleSignup}
-          className="w-full flex items-center justify-center gap-2 py-2.5 bg-surface-1 hover:bg-surface-2 border border-border-default rounded-lg text-sm text-text-primary transition-colors mb-4"
+          className="w-full flex items-center justify-center gap-2 py-2.5 bg-surface-0 hover:bg-surface-1 border border-border-default rounded-lg text-sm text-text-primary transition-colors mb-4 shadow-tier-2"
         >
           <svg width="16" height="16" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -114,7 +114,7 @@ export default function SignupPage() {
           </div>
 
           {error && (
-            <p className="text-sm text-red-400 bg-red-950 border border-red-900 rounded-lg px-3 py-2">
+            <p className="text-sm text-error bg-error-50 border border-error/20 rounded-lg px-3 py-2">
               {error}
             </p>
           )}
@@ -132,6 +132,11 @@ export default function SignupPage() {
           Already have an account?{" "}
           <Link href="/login" className="text-accent hover:underline">
             Sign in
+          </Link>
+        </p>
+        <p className="text-center text-xs text-text-tertiary mt-4">
+          <Link href="/privacy" className="hover:underline">
+            Privacy Policy
           </Link>
         </p>
       </div>

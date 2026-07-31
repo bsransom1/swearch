@@ -5,6 +5,8 @@ import {
   clearSessionCache,
   persistSessionCache,
 } from "./auth-sync";
+import { clearAllChatHistory } from "./chat-session";
+import { SESSION_HIGHLIGHTS_KEY } from "./session-tracking";
 
 export async function signInWithEmail(email: string, password: string) {
   const { data, error } = await supabase.auth.signInWithPassword({
@@ -156,6 +158,10 @@ export async function signOut() {
   await supabase.auth.signOut();
   // Clear the local cache and tell any open web tabs to sign out too.
   await clearSessionCache();
+  // Chat history and session highlights outlive chrome.storage.local, so they
+  // must be cleared explicitly or the next account to sign in would see them.
+  await clearAllChatHistory();
+  await chrome.storage.session.remove([SESSION_HIGHLIGHTS_KEY]);
   await broadcastSignOutToWeb();
 }
 

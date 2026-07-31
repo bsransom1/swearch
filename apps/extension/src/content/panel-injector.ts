@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import PanelRoot from "./panel/PanelRoot";
 import panelStyles from "./panel/panel-entry.css?inline";
 import containerStyles from "./panel/panel-container.css?inline";
-import { dispatchAction, drainExternalPending } from "./panel/lib/action-bus";
+import { dispatchAction, drainExternalPending, closePanel } from "./panel/lib/action-bus";
 import { PANEL_WIDTH } from "./panel/lib/position-calculator";
 
 const PANEL_HOST_ID = "swearch-panel-host";
@@ -11,13 +11,15 @@ const PANEL_HOST_ID = "swearch-panel-host";
 declare global {
   interface Window {
     __swearchOpenPanel?: (detail: import("./panel/lib/action-bus").ActionPayload) => void;
+    __swearchClosePanel?: () => void;
     __swearchPanelHost?: HTMLElement;
     __swearchPanelRoot?: Root;
   }
 }
 
-/** Register opener immediately so background can call it even while React bootstraps. */
+/** Register open/close immediately so background and sidebar can call them while React bootstraps. */
 window.__swearchOpenPanel = dispatchAction;
+window.__swearchClosePanel = closePanel;
 
 function isPanelHealthy(): boolean {
   return (
@@ -92,3 +94,12 @@ try {
 } catch (err) {
   console.error("[Swearch] Panel injector init failed:", err);
 }
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "SWEARCH_CLOSE_PANEL") {
+    closePanel();
+    sendResponse({ closed: true });
+    return true;
+  }
+  return false;
+});

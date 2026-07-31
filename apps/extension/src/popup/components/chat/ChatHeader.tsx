@@ -1,4 +1,5 @@
-import { Brain, ChevronDown, RefreshCw, Settings } from "lucide-react";
+import { ChevronDown, FileStack, RefreshCw, Settings, X } from "lucide-react";
+import { closeSidebarFromIframe, useShellMode } from "../../lib/shell-mode";
 
 interface Project {
   id: string;
@@ -12,6 +13,8 @@ interface Props {
   onChangeProject: () => void;
   onClearChat: () => void;
   isLikelyPaper: boolean;
+  relatedPapersBusy?: boolean;
+  relatedPapersCooldownSeconds?: number;
   onOpenRelatedPapers: () => void;
 }
 
@@ -22,12 +25,39 @@ export default function ChatHeader({
   onChangeProject,
   onClearChat,
   isLikelyPaper,
+  relatedPapersBusy = false,
+  relatedPapersCooldownSeconds = 0,
   onOpenRelatedPapers,
 }: Props) {
+  const shellMode = useShellMode();
+  const isSidebar = shellMode === "sidebar";
   const projectLabel = activeProject?.name ?? "No active project";
 
+  const relatedPapersDisabled =
+    !isLikelyPaper || relatedPapersBusy || relatedPapersCooldownSeconds > 0;
+
+  const relatedPapersTitle = relatedPapersBusy
+    ? "Finding relevant papers…"
+    : relatedPapersCooldownSeconds > 0
+      ? `Wait ${relatedPapersCooldownSeconds}s before searching again`
+      : isLikelyPaper
+        ? "Find related papers on this page"
+        : "Open a research paper to find related work";
+
+  const relatedPapersAriaLabel = relatedPapersBusy
+    ? "Finding relevant papers"
+    : relatedPapersCooldownSeconds > 0
+      ? `Find related papers (available in ${relatedPapersCooldownSeconds} seconds)`
+      : isLikelyPaper
+        ? "Find related papers"
+        : "Find related papers (unavailable on this page)";
+
   return (
-    <div className="border-b border-border-subtle flex-shrink-0 px-4 py-2.5">
+    <div
+      className={`border-b border-border-subtle flex-shrink-0 ${
+        isSidebar ? "px-5 py-3.5" : "px-4 py-2.5"
+      }`}
+    >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <div className="w-6 h-6 bg-accent rounded flex items-center justify-center text-xs font-medium text-white flex-shrink-0">
@@ -56,6 +86,17 @@ export default function ChatHeader({
         </div>
 
         <div className="flex items-center gap-1 flex-shrink-0">
+          {isSidebar && (
+            <button
+              type="button"
+              onClick={closeSidebarFromIframe}
+              className="p-1.5 text-text-tertiary hover:text-text-primary hover:bg-surface-1 rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-accent/60"
+              title="Close sidebar"
+              aria-label="Close sidebar"
+            >
+              <X size={16} strokeWidth={2} />
+            </button>
+          )}
           <button
             type="button"
             onClick={onClearChat}
@@ -68,20 +109,12 @@ export default function ChatHeader({
           <button
             type="button"
             onClick={onOpenRelatedPapers}
-            disabled={!isLikelyPaper}
+            disabled={relatedPapersDisabled}
             className="p-1.5 text-text-tertiary hover:text-text-primary hover:bg-surface-1 rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-tertiary"
-            title={
-              isLikelyPaper
-                ? "Find related papers on this page"
-                : "Open a research paper to find related work"
-            }
-            aria-label={
-              isLikelyPaper
-                ? "Find related papers"
-                : "Find related papers (unavailable on this page)"
-            }
+            title={relatedPapersTitle}
+            aria-label={relatedPapersAriaLabel}
           >
-            <Brain size={16} strokeWidth={2} />
+            <FileStack size={16} strokeWidth={2} />
           </button>
           <button
             type="button"

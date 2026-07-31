@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, FileOutput } from "lucide-react";
 import LoadingView from "./LoadingView";
 import ErrorView from "./ErrorView";
 import NoActiveProjectView from "./NoActiveProjectView";
+import ActionResultFooter from "../components/ActionResultFooter";
 import { bridge, type HighlightAnalysis, type ActiveProject, projectContextParams } from "../lib/bridge";
 import {
-  BTN_PRIMARY,
   CARD,
-  ERROR_TEXT,
   INPUT_FIELD,
   QUOTE_BLOCK,
   TRUNCATION_BANNER,
@@ -38,8 +36,12 @@ export default function AddToProjectView({
   const [analysisStatus, setAnalysisStatus] = useState<"loading" | "done" | "error">("loading");
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [note, setNote] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [added, setAdded] = useState(false);
+  const [exported, setExported] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const noteRef = useRef<HTMLTextAreaElement>(null);
 
   async function runAnalysis(proj: ActiveProject) {
@@ -99,23 +101,40 @@ export default function AddToProjectView({
     );
   }
 
-  async function handleSave() {
-    if (!analysis || saving) return;
-    setSaving(true);
-    setSaveError(null);
+  const saveParams = {
+    selectedText: payload.selectionText,
+    paperTitle: payload.paperTitle,
+    paperUrl: payload.paperUrl,
+    paperDoi: payload.paperDoi,
+    analysis: analysis!,
+    userNote: note.trim() || undefined,
+  };
+
+  async function handleAddToProject() {
+    if (!analysis || adding || exporting) return;
+    setAdding(true);
+    setAddError(null);
     try {
-      await bridge.saveHighlight({
-        selectedText: payload.selectionText,
-        paperTitle: payload.paperTitle,
-        paperUrl: payload.paperUrl,
-        paperDoi: payload.paperDoi,
-        analysis,
-        userNote: note.trim() || undefined,
-      });
+      await bridge.saveHighlight(saveParams);
+      setAdded(true);
       setTimeout(onSaved, 800);
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "Save failed");
-      setSaving(false);
+      setAddError(e instanceof Error ? e.message : "Save failed");
+      setAdding(false);
+    }
+  }
+
+  async function handleExport() {
+    if (!analysis || adding || exporting) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      await bridge.exportHighlightToDoc(saveParams);
+      setExported(true);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -149,22 +168,17 @@ export default function AddToProjectView({
         />
       </div>
 
-      {saveError && (
-        <p className={ERROR_TEXT}>
-          <AlertCircle size={14} strokeWidth={2} className="flex-shrink-0" />
-          <span>{saveError}</span>
-        </p>
-      )}
-
-      <button
-        type="button"
-        onClick={handleSave}
-        disabled={saving}
-        className={`w-full ${BTN_PRIMARY}`}
-      >
-        <FileOutput size={14} strokeWidth={2} />
-        {saving ? "Saving…" : `Add to ${project.name}`}
-      </button>
+      <ActionResultFooter
+        project={project}
+        onAddToProject={handleAddToProject}
+        onExport={handleExport}
+        adding={adding}
+        exporting={exporting}
+        added={added}
+        exported={exported}
+        addError={addError}
+        exportError={exportError}
+      />
     </div>
   );
 }

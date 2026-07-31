@@ -2,24 +2,64 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/*
+ * Swearch light-mode design tokens — single source of truth.
+ * Tailwind color utilities reference these CSS variables.
+ * Values match apps/extension/tailwind.config.ts.
+ */
+:root {
+  color-scheme: light;
+
+  --sw-surface-bg: #f8f8f8;
+  --sw-surface-0: #ffffff;
+  --sw-surface-1: #f5f5f5;
+  --sw-surface-2: #efefef;
+  --sw-surface-3: #e5e5e5;
+  --sw-border-subtle: #e5e5e5;
+  --sw-border-default: #d0d0d0;
+
+  --sw-text-primary: #1a1a1a;
+  --sw-text-secondary: #626262;
+  --sw-text-tertiary: #999999;
+
+  --sw-accent: #6366f1;
+  --sw-accent-hover: #4f46e5;
+  --sw-accent-muted: #312e81;
+  --sw-accent-50: #eef2ff;
+  --sw-accent-200: #c7d2fe;
+
+  --sw-amber: #d97706;
+  --sw-amber-50: #fffbeb;
+  --sw-amber-200: #fde68a;
+
+  --sw-success: #10b981;
+  --sw-success-50: #ecfdf5;
+  --sw-success-200: #a7f3d0;
+  --sw-error: #dc2626;
+  --sw-error-50: #fef2f2;
+  --sw-warning: #f97316;
+
+  --background: var(--sw-surface-bg);
+  --foreground: var(--sw-text-primary);
+}
 
 * {
   box-sizing: border-box;
 }
 
-:root {
-  --background: #0a0a0a;
-  --foreground: #f0f0f0;
+html {
+  color-scheme: light;
+  background: var(--sw-surface-bg);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: "Inter", system-ui, sans-serif;
+  background: var(--sw-surface-bg);
+  color: var(--sw-text-primary);
+  font-family: var(--font-inter), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
+/* Scrollbars — matches extension sidebar */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -27,9 +67,40 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2a2a2a;
+  background: #d0d0d0;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #333;
+  background: #b0b0b0;
+}
+
+@keyframes swearch-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.swearch-fade-in {
+  animation: swearch-fade-in 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes swearch-popover-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.swearch-popover-in {
+  animation: swearch-popover-in 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  transform-origin: top;
 }

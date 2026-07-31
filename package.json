@@ -10,6 +10,8 @@
     "dev:extension": "pnpm --filter extension dev",
     "build:web": "pnpm --filter web build",
     "build:extension": "pnpm --filter extension build",
+    "package:extension": "rm -f apps/extension/swearch-extension-v0.1.0.zip && VITE_WEB_APP_ORIGINS=https://swearch.app pnpm build:extension && cd apps/extension/dist && zip -r ../swearch-extension-v0.1.0.zip .",
+    "store:screenshots": "node scripts/render-store-screenshots.mjs",
     "db:start": "pnpm exec supabase start",
     "db:migrate": "pnpm exec supabase db push",
     "db:types": "pnpm exec supabase gen types typescript --local > packages/shared/types/database.ts",
@@ -21,6 +23,7 @@
     "test:auth:e2e": "bash scripts/test-auth-e2e.sh"
   },
   "devDependencies": {
+    "playwright": "^1.61.1",
     "supabase": "^2.108.0",
     "typescript": "^5.4.5",
     "vitest": "^3.2.6"

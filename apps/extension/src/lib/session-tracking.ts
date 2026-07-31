@@ -1,4 +1,4 @@
-const SESSION_HIGHLIGHTS_KEY = "swearchSessionHighlightIds";
+export const SESSION_HIGHLIGHTS_KEY = "swearchSessionHighlightIds";
 
 /**
  * Record a highlight ID in session storage so the Session Activity tab can

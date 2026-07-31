@@ -13,6 +13,7 @@ export interface ChatMessage {
   papers?: DiscoveredPaper[];
   isLoading?: boolean;
   searchQuery?: string;
+  papersTotal?: number;
   addedOpenalexIds?: string[];
 }
 
@@ -21,7 +22,6 @@ interface Props {
   showAssistantIcon?: boolean;
   activeProjectId?: string | null;
   onAddPaper?: (messageId: string, paper: DiscoveredPaper) => Promise<void>;
-  onAddAllPapers?: (messageId: string, papers: DiscoveredPaper[]) => Promise<void>;
   addBusy?: boolean;
 }
 
@@ -30,7 +30,6 @@ export default function MessageBubble({
   showAssistantIcon = false,
   activeProjectId = null,
   onAddPaper,
-  onAddAllPapers,
   addBusy,
 }: Props) {
   const isUser = message.role === "user";
@@ -52,11 +51,12 @@ export default function MessageBubble({
       <PapersMessage
         content={message.content}
         papers={message.papers ?? []}
+        searchQuery={message.searchQuery}
+        total={message.papersTotal}
         isLoading={message.isLoading}
         activeProjectId={activeProjectId}
         addedOpenalexIds={addedSet}
         onAddPaper={(paper) => onAddPaper?.(message.id, paper) ?? Promise.resolve()}
-        onAddAll={(papers) => onAddAllPapers?.(message.id, papers) ?? Promise.resolve()}
         addBusy={addBusy}
       />
     );

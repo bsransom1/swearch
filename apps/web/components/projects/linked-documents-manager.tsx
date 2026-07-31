@@ -186,13 +186,13 @@ export default function LinkedDocumentsManager({ projectId, initialDocs }: Props
       </h2>
 
       {error && flowStep === "list" && (
-        <p className="text-xs text-red-400 mb-3 bg-red-950/40 border border-red-900/50 rounded-lg px-3 py-2">
+        <p className="text-xs text-error mb-3 bg-error-50 border border-error/20 rounded-lg px-3 py-2">
           {error}
         </p>
       )}
 
       {flowStep === "picker" ? (
-        <div className="bg-surface-1 border border-border-subtle rounded-xl p-4 space-y-3">
+        <div className="bg-surface-0 border border-border-subtle rounded-xl shadow-tier-2 p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-medium text-text-primary">Choose a document</p>
             <button
@@ -230,7 +230,7 @@ export default function LinkedDocumentsManager({ projectId, initialDocs }: Props
           )}
         </div>
       ) : flowStep === "choose-role" ? (
-        <div className="bg-surface-1 border border-border-subtle rounded-xl p-4 space-y-3">
+        <div className="bg-surface-0 border border-border-subtle rounded-xl shadow-tier-2 p-4 space-y-3">
           <div>
             <p className="text-xs font-medium text-text-tertiary uppercase tracking-wide">
               How should Swearch use this doc?
@@ -270,7 +270,7 @@ export default function LinkedDocumentsManager({ projectId, initialDocs }: Props
       ) : (
         <div className="space-y-2">
           {linkedDocs.length === 0 ? (
-            <div className="bg-surface-1 border border-border-subtle rounded-xl p-5 text-center">
+            <div className="bg-surface-0 border border-border-subtle rounded-xl shadow-tier-2 p-5 text-center">
               <p className="text-sm text-text-secondary">No documents linked</p>
               <p className="text-xs text-text-tertiary mt-1">
                 Link context docs for AI and export docs for highlights.
@@ -283,7 +283,7 @@ export default function LinkedDocumentsManager({ projectId, initialDocs }: Props
               return (
                 <div
                   key={doc.id}
-                  className="bg-surface-1 border border-border-subtle rounded-xl p-4"
+                  className="bg-surface-0 border border-border-subtle rounded-xl shadow-tier-2 p-4"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -297,7 +297,7 @@ export default function LinkedDocumentsManager({ projectId, initialDocs }: Props
                             {badge}
                           </span>
                         ))}
-                        <span className={`text-[10px] ${synced ? "text-green-400" : "text-amber-400"}`}>
+                        <span className={`text-[10px] ${synced ? "text-success" : "text-warning"}`}>
                           {doc.summary ? "✓ summary" : synced ? "✓ synced" : "⚠ not synced"}
                         </span>
                       </div>
@@ -337,7 +337,7 @@ export default function LinkedDocumentsManager({ projectId, initialDocs }: Props
                       type="button"
                       onClick={() => handleRemove(doc)}
                       disabled={busy}
-                      className="flex-1 py-1.5 text-xs border border-red-900/50 text-red-400 hover:bg-red-950/30 rounded-lg"
+                      className="flex-1 py-1.5 text-xs border border-error/30 text-error hover:bg-error-50 rounded-lg transition-colors"
                     >
                       Remove
                     </button>

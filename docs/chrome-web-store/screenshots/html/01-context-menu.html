@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f5f5f5; color: #1a1a1a; width: 1280px; height: 800px; overflow: hidden; }
+    .caption { position: absolute; top: 16px; left: 16px; background: #4f46e5; color: white; padding: 8px 14px; border-radius: 8px; font-size: 14px; font-weight: 600; z-index: 10; }
+    .browser { margin: 48px auto 0; width: 1180px; background: white; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.12); overflow: hidden; }
+    .chrome { background: #e8e8e8; padding: 10px 16px; display: flex; align-items: center; gap: 8px; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .url { flex: 1; background: white; border-radius: 6px; padding: 6px 12px; font-size: 13px; color: #555; margin-left: 8px; }
+    .page { padding: 32px 48px; font-size: 15px; line-height: 1.7; }
+    .title { font-size: 22px; font-weight: 700; margin-bottom: 16px; }
+    .selected { background: #dbeafe; outline: 2px solid #4f46e5; }
+    .menu { position: absolute; left: 420px; top: 280px; background: white; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.15); min-width: 240px; padding: 6px 0; font-size: 13px; }
+    .menu-item { padding: 8px 16px; }
+    .menu-item.highlight { background: #eef2ff; color: #4f46e5; font-weight: 600; }
+    .menu-sep { height: 1px; background: #eee; margin: 4px 0; }
+  </style>
+</head>
+<body>
+  <div class="caption">Right-click → Summarize with Swearch</div>
+  <div class="browser">
+    <div class="chrome">
+      <div class="dot" style="background:#ff5f57"></div>
+      <div class="dot" style="background:#febc2e"></div>
+      <div class="dot" style="background:#28c840"></div>
+      <div class="url">arxiv.org/abs/2301.07041</div>
+    </div>
+    <div class="page">
+      <div class="title">Attention Is All You Need (Revisited)</div>
+      <p>Abstract — The dominant sequence transduction models are based on complex recurrent or convolutional neural networks...</p>
+      <p style="margin-top:20px">We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely.</p>
+      <p style="margin-top:20px"><span class="selected">Experiments on two machine translation tasks show these models to be superior in quality while being more parallelizable and requiring significantly less time to train.</span></p>
+    </div>
+  </div>
+  <div class="menu">
+    <div class="menu-item">Copy</div>
+    <div class="menu-item">Search Google for…</div>
+    <div class="menu-sep"></div>
+    <div class="menu-item highlight">Summarize with Swearch</div>
+    <div class="menu-item">Ask Swearch</div>
+    <div class="menu-item">Check Relevance</div>
+    <div class="menu-item">Add to Project</div>
+    <div class="menu-item">Extract Claims</div>
+  </div>
+</body>
+</html>

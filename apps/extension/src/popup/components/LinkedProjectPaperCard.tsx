@@ -1,5 +1,6 @@
 import { ExternalLink, Trash2 } from "lucide-react";
 import type { PaperRecommendation } from "@swearch/shared";
+import { formatRelativeTime } from "../../lib/utils";
 
 interface Props {
   paper: PaperRecommendation;
@@ -26,7 +27,7 @@ export default function LinkedProjectPaperCard({ paper, onRemove, busy }: Props)
         <Trash2 size={14} strokeWidth={2} />
       </button>
 
-      <p className="text-sm font-medium text-text-primary line-clamp-2 leading-snug pr-1">
+      <p className="text-sm font-medium text-text-primary leading-snug pr-1">
         {paper.recommended_title}
       </p>
 
@@ -38,13 +39,13 @@ export default function LinkedProjectPaperCard({ paper, onRemove, busy }: Props)
         </p>
       )}
 
-      {paper.relevance_reason && (
-        <p className="mt-1.5 text-[11px] text-text-secondary line-clamp-1 italic">
-          {paper.relevance_reason}
+      {paper.created_at && (
+        <p className="mt-1 text-[10px] text-text-tertiary">
+          Added {formatRelativeTime(paper.created_at)}
         </p>
       )}
 
-      <div className="mt-2">
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <a
           href={url}
           target="_blank"

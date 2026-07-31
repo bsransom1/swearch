@@ -30,12 +30,74 @@ import {
   restoreActiveProject,
   setActiveProject as persistActiveProject,
 } from "../lib/active-project";
-import { fetchExportDocId } from "../lib/project-google-docs";
+import { fetchExportDocId, fetchProjectGoogleDocs } from "../lib/project-google-docs";
+import { appendHighlightExportToGoogleDoc } from "../lib/google-docs";
 import { buildProjectContextBundle } from "../lib/project-context";
 import { getRecentAnalysisForPaper } from "../lib/highlight-cache";
 import { trackHighlightInSession } from "../lib/session-tracking";
 
 setupContextMenuListeners();
+
+const SIDEBAR_SCRIPT = "content/sidebar-injector.js";
+
+function isRestrictedTabUrl(url: string | undefined): boolean {
+  if (!url) return true;
+  return (
+    url.startsWith("chrome://") ||
+    url.startsWith("chrome-extension://") ||
+    url.startsWith("https://chrome.google.com/webstore")
+  );
+}
+
+async function ensureSidebarInjected(tabId: number): Promise<void> {
+  const [{ result: ready }] = await chrome.scripting.executeScript({
+    target: { tabId, frameIds: [0] },
+    func: () => typeof (window as Window & { __swearchToggleSidebar?: unknown }).__swearchToggleSidebar === "function",
+  });
+
+  if (ready) return;
+
+  await chrome.scripting.executeScript({
+    target: { tabId, frameIds: [0] },
+    files: [SIDEBAR_SCRIPT],
+  });
+
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const [{ result: ok }] = await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      func: () => typeof (window as Window & { __swearchToggleSidebar?: unknown }).__swearchToggleSidebar === "function",
+    });
+    if (ok) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
+async function closeContextPanelOnTab(tabId: number): Promise<void> {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: "SWEARCH_CLOSE_PANEL" });
+  } catch {
+    // Panel script may not be injected on this tab.
+  }
+}
+
+async function toggleSidebarOnTab(tab: chrome.tabs.Tab): Promise<void> {
+  const tabId = tab.id;
+  if (!tabId || isRestrictedTabUrl(tab.url)) return;
+
+  await ensureSidebarInjected(tabId);
+  await closeContextPanelOnTab(tabId);
+
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: "SWEARCH_TOGGLE_SIDEBAR" });
+  } catch {
+    await ensureSidebarInjected(tabId);
+    await chrome.tabs.sendMessage(tabId, { type: "SWEARCH_TOGGLE_SIDEBAR" });
+  }
+}
+
+chrome.action.onClicked.addListener((tab) => {
+  toggleSidebarOnTab(tab).catch(console.error);
+});
 
 supabase.auth.onAuthStateChange((event, session) => {
   if ((event === "SIGNED_IN" || event === "TOKEN_REFRESHED") && session) {
@@ -216,6 +278,47 @@ async function saveHighlight(params: {
   return { id: savedId };
 }
 
+async function exportHighlightToDoc(params: {
+  selectedText: string;
+  paperTitle: string;
+  paperUrl: string;
+  paperDoi: string | null;
+  analysis: {
+    summary: string;
+    methodology: string | null;
+    findings: string | null;
+    limitations: string | null;
+    relevance: string | null;
+    sample_size: string | null;
+    tags: string[];
+  };
+  userNote?: string;
+}) {
+  const projectId = await getActiveProjectId();
+  if (!projectId) throw new Error("Set an active project first");
+
+  const docId = await fetchExportDocId(projectId);
+  if (!docId) {
+    throw new Error(
+      "No linked Google Doc found for export. Link one in Settings or the project sidebar."
+    );
+  }
+
+  await appendHighlightExportToGoogleDoc(docId, {
+    paperTitle: params.paperTitle,
+    paperUrl: params.paperUrl,
+    highlightText: params.selectedText,
+    analysis: params.analysis,
+    exportedAt: new Date().toISOString(),
+  });
+
+  const docs = await fetchProjectGoogleDocs(projectId);
+  const linked = docs.find((d) => d.google_doc_id === docId);
+  const docTitle = linked?.title ?? "Google Doc";
+
+  return { docId, docTitle };
+}
+
 async function checkCachedAnalysis(params: {
   paperUrl: string;
   selectionText: string;
@@ -233,6 +336,17 @@ async function checkCachedAnalysis(params: {
     user.id,
     projectId ?? undefined
   );
+}
+
+async function withAuthenticatedSession<T>(fn: () => Promise<T>): Promise<T> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    const restored = await restoreSession();
+    if (!restored) throw new Error("Not authenticated");
+  }
+  return fn();
 }
 
 // ── Internal message listener ─────────────────────────────────────────────────
@@ -263,7 +377,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   // Panel bridge: analyze highlight
   if (message.type === "SWEARCH_ANALYZE") {
-    analyzeHighlight(message.payload)
+    withAuthenticatedSession(() => analyzeHighlight(message.payload))
       .then((data) => sendResponse({ data }))
       .catch((err) => sendResponse({ error: err.message }));
     return true;
@@ -271,7 +385,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   // Panel bridge: extract claims (mode=claims_only)
   if (message.type === "SWEARCH_EXTRACT_CLAIMS") {
-    extractClaims(message.payload)
+    withAuthenticatedSession(() => extractClaims(message.payload))
       .then((data) => sendResponse({ data }))
       .catch((err) => sendResponse({ error: err.message }));
     return true;
@@ -279,7 +393,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   // Panel bridge: ask about selection
   if (message.type === "SWEARCH_ASK") {
-    askAboutSelection(message.payload)
+    withAuthenticatedSession(() => askAboutSelection(message.payload))
       .then((data) => sendResponse({ data }))
       .catch((err) => sendResponse({ error: err.message }));
     return true;
@@ -287,7 +401,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   // Panel bridge: get active project
   if (message.type === "SWEARCH_GET_ACTIVE_PROJECT") {
-    getActiveProjectData()
+    withAuthenticatedSession(() => getActiveProjectData())
       .then((data) => sendResponse({ data }))
       .catch((err) => sendResponse({ error: err.message }));
     return true;
@@ -295,7 +409,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   // Panel bridge: get all user projects (for NoActiveProjectView)
   if (message.type === "SWEARCH_GET_PROJECTS") {
-    getAllProjects()
+    withAuthenticatedSession(() => getAllProjects())
       .then((data) => sendResponse({ data }))
       .catch((err) => sendResponse({ error: err.message }));
     return true;
@@ -303,18 +417,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   // Panel bridge: set active project
   if (message.type === "SWEARCH_SET_ACTIVE_PROJECT") {
-    persistActiveProject(message.payload.projectId)
-      .then(async (data) => {
+    withAuthenticatedSession(() =>
+      persistActiveProject(message.payload.projectId).then(async (data) => {
         await refreshMenuTitles();
-        sendResponse({ data });
+        return data;
       })
+    )
+      .then((data) => sendResponse({ data }))
       .catch((err) => sendResponse({ error: err.message }));
     return true;
   }
 
   // Panel bridge: save highlight
   if (message.type === "SWEARCH_SAVE_HIGHLIGHT") {
-    saveHighlight(message.payload)
+    withAuthenticatedSession(() => saveHighlight(message.payload))
+      .then((data) => sendResponse({ data }))
+      .catch((err) => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  // Panel bridge: save highlight + export to linked Google Doc
+  if (message.type === "SWEARCH_EXPORT_HIGHLIGHT") {
+    withAuthenticatedSession(() => exportHighlightToDoc(message.payload))
       .then((data) => sendResponse({ data }))
       .catch((err) => sendResponse({ error: err.message }));
     return true;
@@ -322,7 +446,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   // Panel bridge: check for a cached recent analysis
   if (message.type === "SWEARCH_CHECK_CACHED") {
-    checkCachedAnalysis(message.payload)
+    withAuthenticatedSession(() => checkCachedAnalysis(message.payload))
       .then((data) => sendResponse({ data }))
       .catch((err) => sendResponse({ error: err.message }));
     return true;

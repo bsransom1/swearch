@@ -6,7 +6,7 @@ import RelevanceView from "./views/RelevanceView";
 import AddToProjectView from "./views/AddToProjectView";
 import ExtractClaimsView from "./views/ExtractClaimsView";
 import { bridge, type ActiveProject } from "./lib/bridge";
-import { registerHandler, type ActionPayload } from "./lib/action-bus";
+import { registerHandler, registerCloseHandler, type ActionPayload } from "./lib/action-bus";
 import {
   applyPanelPosition,
   calculatePanelPosition,
@@ -56,6 +56,11 @@ export default function PanelRoot({ hostElement }: Props) {
     setVisible(false);
     setPayload(null);
   }, []);
+
+  useEffect(() => {
+    registerCloseHandler(close);
+    return () => registerCloseHandler(null);
+  }, [close]);
 
   const switchAction = useCallback(
     (nextAction: ActionPayload["action"]) => {

@@ -4,7 +4,7 @@ import type { Components } from "react-markdown";
 
 interface Props {
   content: string;
-  variant?: "assistant" | "user" | "panel";
+  variant?: "assistant" | "user" | "panel" | "insight-accent" | "insight-neutral";
   className?: string;
 }
 
@@ -94,6 +94,64 @@ const userComponents: Components = {
   ),
 };
 
+const insightAccentComponents: Components = {
+  ...baseComponents,
+  p: ({ children }) => (
+    <p className="mb-2 last:mb-0 leading-relaxed text-accent">{children}</p>
+  ),
+  strong: ({ children }) => (
+    <strong className="font-semibold text-accent">{children}</strong>
+  ),
+  em: ({ children }) => <em className="italic text-accent/90">{children}</em>,
+  ul: ({ children }) => (
+    <ul className="my-2 ml-4 list-disc space-y-1.5 marker:text-accent/70">{children}</ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="my-2 ml-4 list-decimal space-y-1.5 marker:text-accent/70">{children}</ol>
+  ),
+  li: ({ children }) => <li className="leading-relaxed pl-0.5 text-accent">{children}</li>,
+  h1: ({ children }) => (
+    <p className="mb-2 mt-1 font-semibold text-accent">{children}</p>
+  ),
+  h2: ({ children }) => (
+    <p className="mb-2 mt-1 font-semibold text-accent">{children}</p>
+  ),
+  h3: ({ children }) => (
+    <p className="mb-1.5 mt-1 font-medium text-accent">{children}</p>
+  ),
+  a: ({ href, children }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-accent underline underline-offset-2 hover:text-accent-hover break-all"
+    >
+      {children}
+    </a>
+  ),
+};
+
+const insightNeutralComponents: Components = {
+  ...baseComponents,
+  p: ({ children }) => (
+    <p className="mb-2 last:mb-0 leading-relaxed text-text-secondary">{children}</p>
+  ),
+  strong: ({ children }) => (
+    <strong className="font-semibold text-text-primary">{children}</strong>
+  ),
+  em: ({ children }) => <em className="italic text-text-secondary">{children}</em>,
+  li: ({ children }) => <li className="leading-relaxed pl-0.5 text-text-secondary">{children}</li>,
+  h1: ({ children }) => (
+    <p className="mb-2 mt-1 font-semibold text-text-primary">{children}</p>
+  ),
+  h2: ({ children }) => (
+    <p className="mb-2 mt-1 font-semibold text-text-primary">{children}</p>
+  ),
+  h3: ({ children }) => (
+    <p className="mb-1.5 mt-1 font-medium text-text-primary">{children}</p>
+  ),
+};
+
 export default function MarkdownContent({
   content,
   variant = "panel",
@@ -104,10 +162,17 @@ export default function MarkdownContent({
       ? userComponents
       : variant === "assistant"
         ? assistantComponents
-        : baseComponents;
+        : variant === "insight-accent"
+          ? insightAccentComponents
+          : variant === "insight-neutral"
+            ? insightNeutralComponents
+            : baseComponents;
+
+  const sizeClass =
+    variant === "insight-accent" || variant === "insight-neutral" ? "text-xs" : "text-sm";
 
   return (
-    <div className={`text-sm text-text-primary ${className}`}>
+    <div className={`${sizeClass} text-text-primary ${className}`}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {content}
       </ReactMarkdown>

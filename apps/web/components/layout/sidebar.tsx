@@ -4,11 +4,11 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { FolderOpen, Settings, LogOut } from "lucide-react";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: "⊞" },
-  { href: "/projects", label: "Projects", icon: "◫" },
-  { href: "/settings", label: "Settings", icon: "⚙" },
+  { href: "/projects", label: "Projects", icon: FolderOpen },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export default function Sidebar() {
@@ -16,57 +16,57 @@ export default function Sidebar() {
   const router = useRouter();
 
   async function handleSignOut() {
+    const confirmed = window.confirm("Sign out of Swearch?");
+    if (!confirmed) return;
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/login");
     router.refresh();
   }
 
+  function isActive(href: string) {
+    return pathname === href || pathname.startsWith(`${href}/`);
+  }
+
   return (
-    <aside className="w-52 flex-shrink-0 bg-surface-1 border-r border-border-subtle flex flex-col">
-      {/* Logo */}
+    <aside className="w-[200px] flex-shrink-0 bg-surface-bg border-r border-border-subtle flex flex-col">
       <div className="px-4 py-4 border-b border-border-subtle">
-        <div className="flex items-center gap-2">
+        <Link href="/projects" className="flex items-center gap-2">
           <div className="w-7 h-7 bg-accent rounded-lg flex items-center justify-center flex-shrink-0">
             <span className="text-white font-bold text-xs">S</span>
           </div>
           <span className="text-text-primary font-semibold text-sm">Swearch</span>
-        </div>
+        </Link>
       </div>
 
-      {/* Nav */}
       <nav className="flex-1 px-2 py-3 flex flex-col gap-0.5">
         {navItems.map((item) => {
-          const active =
-            item.href === "/dashboard"
-              ? pathname === "/dashboard"
-              : pathname.startsWith(item.href);
-
+          const active = isActive(item.href);
+          const Icon = item.icon;
           return (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors",
+                "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 ease-out",
                 active
-                  ? "bg-surface-2 text-text-primary"
-                  : "text-text-tertiary hover:text-text-secondary hover:bg-surface-2"
+                  ? "bg-accent-50 text-accent font-medium"
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-1"
               )}
             >
-              <span className="text-base leading-none">{item.icon}</span>
+              <Icon size={15} strokeWidth={active ? 2.25 : 1.75} className="flex-shrink-0" />
               {item.label}
             </Link>
           );
         })}
       </nav>
 
-      {/* Sign out */}
-      <div className="px-2 pb-4">
+      <div className="px-2 pb-3 border-t border-border-subtle pt-3">
         <button
-          onClick={handleSignOut}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-text-tertiary hover:text-text-secondary hover:bg-surface-2 transition-colors"
+          onClick={() => void handleSignOut()}
+          className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-text-tertiary hover:text-text-secondary hover:bg-surface-1 transition-colors duration-150 ease-out w-full text-left"
         >
-          <span className="text-base leading-none">→</span>
+          <LogOut size={15} strokeWidth={1.75} className="flex-shrink-0" />
           Sign out
         </button>
       </div>

@@ -3,6 +3,10 @@ export const POPUP_WIDTH = 380;
 export const POPUP_HEIGHT = 600;
 export const POPUP_RADIUS = 16;
 
+export const SIDEBAR_WIDTH_CSS = "min(480px, 28vw)";
+export const SIDEBAR_MIN_WIDTH = 360;
+export const SIDEBAR_RADIUS = 0;
+
 /** Starter prompts shown above the chat input before the first user message. */
 export const SUGGESTED_QUESTIONS = [
   "What is the scope of my project?",

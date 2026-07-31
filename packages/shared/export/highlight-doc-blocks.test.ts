@@ -30,8 +30,7 @@ describe("buildHighlightExportBlocks", () => {
       label: "Source",
       url: baseParams.paperUrl,
     });
-    expect(blocks).toContainEqual({ type: "meta", text: baseParams.timestamp });
-    expect(blocks).toContainEqual({ type: "heading", level: 3, text: "Highlight" });
+    expect(blocks).toContainEqual({ type: "meta", text: `Exported: ${baseParams.timestamp}` });
     expect(blocks).toContainEqual({ type: "quote", text: baseParams.highlightText });
     expect(blocks).toContainEqual({ type: "heading", level: 3, text: "Summary" });
     expect(blocks).toContainEqual({
@@ -60,10 +59,9 @@ describe("buildHighlightExportBlocks", () => {
 
     expect(headings).toEqual([
       baseParams.paperTitle,
-      "Highlight",
       "Summary",
       "Key finding",
-      "Relevance to your project",
+      "Relevance to Your Project",
       "Methodology",
       "Sample size",
       "Limitations",

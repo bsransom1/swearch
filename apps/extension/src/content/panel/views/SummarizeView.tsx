@@ -1,20 +1,16 @@
 import { useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, FileOutput } from "lucide-react";
 import LoadingView from "./LoadingView";
 import ErrorView from "./ErrorView";
-import CopyButton from "../components/CopyButton";
+import ActionResultFooter from "../components/ActionResultFooter";
 import MarkdownContent from "../../../components/MarkdownContent";
 import { bridge, type HighlightAnalysis, type ActiveProject, projectContextParams } from "../lib/bridge";
 import { getCachedAnalysis } from "../lib/highlight-cache";
 import { getAnalysisSections } from "@swearch/shared/types/highlight-analysis";
 import { SectionBlock, sectionKeyFromAnalysisKey } from "../../../lib/section-ui";
 import {
-  BTN_PRIMARY,
-  ERROR_TEXT,
   QUOTE_BLOCK,
   SECTION_LABEL,
   TAG_PILL,
-  TIER_3_SUCCESS,
   TRUNCATION_BANNER,
 } from "../../../lib/theme";
 
@@ -48,13 +44,26 @@ function formatAnalysisForCopy(
     .join("\n");
 }
 
+function saveParams(payload: ActionPayload, analysis: HighlightAnalysis) {
+  return {
+    selectedText: payload.selectionText,
+    paperTitle: payload.paperTitle,
+    paperUrl: payload.paperUrl,
+    paperDoi: payload.paperDoi,
+    analysis,
+  };
+}
+
 export default function SummarizeView({ payload, project }: Props) {
   const [analysis, setAnalysis] = useState<HighlightAnalysis | null>(null);
   const [status, setStatus] = useState<"loading" | "cached" | "done" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [added, setAdded] = useState(false);
+  const [exported, setExported] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   async function runAnalysis() {
     setStatus("loading");
@@ -92,22 +101,30 @@ export default function SummarizeView({ payload, project }: Props) {
   }, []);
 
   async function handleAddToProject() {
-    if (!analysis || saving) return;
-    setSaving(true);
-    setSaveError(null);
+    if (!analysis || adding || exporting) return;
+    setAdding(true);
+    setAddError(null);
     try {
-      await bridge.saveHighlight({
-        selectedText: payload.selectionText,
-        paperTitle: payload.paperTitle,
-        paperUrl: payload.paperUrl,
-        paperDoi: payload.paperDoi,
-        analysis,
-      });
-      setSaved(true);
+      await bridge.saveHighlight(saveParams(payload, analysis));
+      setAdded(true);
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "Save failed");
+      setAddError(e instanceof Error ? e.message : "Save failed");
     } finally {
-      setSaving(false);
+      setAdding(false);
+    }
+  }
+
+  async function handleExport() {
+    if (!analysis || adding || exporting) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      await bridge.exportHighlightToDoc(saveParams(payload, analysis));
+      setExported(true);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -161,33 +178,18 @@ export default function SummarizeView({ payload, project }: Props) {
         </div>
       )}
 
-      {saveError && (
-        <p className={ERROR_TEXT}>
-          <AlertCircle size={14} strokeWidth={2} className="flex-shrink-0" />
-          <span>{saveError}</span>
-        </p>
-      )}
-
-      <div className="flex items-center gap-2 pt-1 border-t border-border-subtle">
-        <CopyButton text={formatAnalysisForCopy(payload, analysis)} label="Copy" />
-        {project &&
-          (saved ? (
-            <span className={`flex-1 inline-flex items-center justify-center gap-2 text-xs text-success ${TIER_3_SUCCESS}`}>
-              <CheckCircle2 size={14} strokeWidth={2} />
-              Added to {project.name}
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={handleAddToProject}
-              disabled={saving}
-              className={`flex-1 ${BTN_PRIMARY}`}
-            >
-              <FileOutput size={14} strokeWidth={2} />
-              {saving ? "Saving…" : `Add to ${project.name}`}
-            </button>
-          ))}
-      </div>
+      <ActionResultFooter
+        project={project}
+        copyText={formatAnalysisForCopy(payload, analysis)}
+        onAddToProject={handleAddToProject}
+        onExport={handleExport}
+        adding={adding}
+        exporting={exporting}
+        added={added}
+        exported={exported}
+        addError={addError}
+        exportError={exportError}
+      />
     </div>
   );
 }

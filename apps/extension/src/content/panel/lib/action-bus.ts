@@ -11,6 +11,7 @@ export interface ActionPayload {
 /** Persisted on window so state survives panel script re-injection. */
 interface ActionBus {
   handler: ((detail: ActionPayload) => void) | null;
+  closeHandler: (() => void) | null;
   queue: ActionPayload[];
 }
 
@@ -19,7 +20,7 @@ const BUS_KEY = "__swearchActionBus";
 function getBus(): ActionBus {
   const w = window as typeof window & { [BUS_KEY]?: ActionBus };
   if (!w[BUS_KEY]) {
-    w[BUS_KEY] = { handler: null, queue: [] };
+    w[BUS_KEY] = { handler: null, closeHandler: null, queue: [] };
   }
   return w[BUS_KEY];
 }
@@ -31,6 +32,14 @@ export function registerHandler(handler: (detail: ActionPayload) => void): void 
     const detail = bus.queue.shift()!;
     handler(detail);
   }
+}
+
+export function registerCloseHandler(handler: (() => void) | null): void {
+  getBus().closeHandler = handler;
+}
+
+export function closePanel(): void {
+  getBus().closeHandler?.();
 }
 
 export function dispatchAction(detail: ActionPayload): void {

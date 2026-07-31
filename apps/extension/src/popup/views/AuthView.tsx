@@ -2,6 +2,7 @@ import { useState } from "react";
 import { signInWithEmail, signInWithGoogle, signUpWithEmail } from "../../lib/auth";
 import { WEB_APP_ORIGINS } from "../../lib/auth-sync";
 import { BTN_PRIMARY } from "../../lib/theme";
+import { useShellMode } from "../lib/shell-mode";
 
 interface Props {
   onAuth: (user: any) => void;
@@ -57,8 +58,14 @@ export default function AuthView({ onAuth }: Props) {
     chrome.tabs.create({ url: WEB_APP_LOGIN_URL });
   }
 
+  const isSidebar = useShellMode() === "sidebar";
+
   return (
-    <div className="flex h-full min-h-0 flex-col gap-5 overflow-y-auto p-6">
+    <div
+      className={`flex h-full min-h-0 flex-col gap-5 overflow-y-auto ${
+        isSidebar ? "p-8" : "p-6"
+      }`}
+    >
       {/* Logo */}
       <div className="flex items-center gap-2">
         <div className="w-7 h-7 bg-accent rounded-lg flex items-center justify-center">

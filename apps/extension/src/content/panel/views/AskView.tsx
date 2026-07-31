@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { AlertCircle, Send, Sparkles } from "lucide-react";
+import ActionResultFooter from "../components/ActionResultFooter";
 import CopyButton from "../components/CopyButton";
 import MarkdownContent from "../../../components/MarkdownContent";
 import { bridge, type ActiveProject, projectContextParams } from "../lib/bridge";
@@ -17,6 +18,7 @@ interface ActionPayload {
   selectionText: string;
   paperTitle: string;
   paperUrl: string;
+  paperDoi?: string | null;
 }
 
 interface QAPair {
@@ -29,11 +31,41 @@ interface Props {
   project: ActiveProject | null;
 }
 
+function threadToAnalysis(thread: QAPair[]) {
+  const last = thread[thread.length - 1];
+  if (!last) {
+    return {
+      summary: "",
+      methodology: null,
+      findings: null,
+      limitations: null,
+      relevance: null,
+      sample_size: null,
+      tags: [] as string[],
+    };
+  }
+  return {
+    summary: `Q: ${last.question}\n\nA: ${last.answer}`,
+    methodology: null,
+    findings: null,
+    limitations: null,
+    relevance: null,
+    sample_size: null,
+    tags: [] as string[],
+  };
+}
+
 export default function AskView({ payload, project }: Props) {
   const [question, setQuestion] = useState("");
   const [thread, setThread] = useState<QAPair[]>([]);
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [added, setAdded] = useState(false);
+  const [exported, setExported] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -55,11 +87,53 @@ export default function AskView({ payload, project }: Props) {
 
       setThread((prev) => [...prev, { question: q, answer }]);
       setQuestion("");
+      setExported(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Request failed");
     } finally {
       setAsking(false);
       setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }
+
+  const copyText =
+    thread.length > 0
+      ? thread.map((qa) => `Q: ${qa.question}\nA: ${qa.answer}`).join("\n\n")
+      : undefined;
+
+  const saveParams = {
+    selectedText: payload.selectionText,
+    paperTitle: payload.paperTitle,
+    paperUrl: payload.paperUrl,
+    paperDoi: payload.paperDoi ?? null,
+    analysis: threadToAnalysis(thread),
+  };
+
+  async function handleAddToProject() {
+    if (thread.length === 0 || adding || exporting) return;
+    setAdding(true);
+    setAddError(null);
+    try {
+      await bridge.saveHighlight(saveParams);
+      setAdded(true);
+    } catch (e) {
+      setAddError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function handleExport() {
+    if (thread.length === 0 || adding || exporting) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      await bridge.exportHighlightToDoc(saveParams);
+      setExported(true);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -128,11 +202,19 @@ export default function AskView({ payload, project }: Props) {
       </form>
 
       {thread.length > 0 && (
-        <div className="px-3 pb-3 flex gap-2">
-          <CopyButton
-            text={thread.map((qa) => `Q: ${qa.question}\nA: ${qa.answer}`).join("\n\n")}
-            label="Copy Q&A"
-            className="flex-1"
+        <div className="px-3 pb-3">
+          <ActionResultFooter
+            project={project}
+            copyText={copyText}
+            copyLabel="Copy Q&A"
+            onAddToProject={handleAddToProject}
+            onExport={handleExport}
+            adding={adding}
+            exporting={exporting}
+            added={added}
+            exported={exported}
+            addError={addError}
+            exportError={exportError}
           />
         </div>
       )}

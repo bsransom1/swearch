@@ -2,18 +2,23 @@
   "manifest_version": 3,
   "name": "Swearch — Research Condensation",
   "version": "0.1.0",
-  "description": "Highlight research papers, get AI summaries, export to Google Docs.",
+  "description": "Highlight research papers to get AI summaries, extract insights, and export to Google Docs. Organize findings by project.",
+  "homepage_url": "https://swearch.app",
   "permissions": [
     "activeTab",
     "storage",
     "identity",
     "tabs",
     "scripting",
-    "contextMenus"
+    "contextMenus",
+    "clipboardWrite"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
   "oauth2": {
     "client_id": "__GOOGLE_CLIENT_ID__",
     "scopes": [
@@ -30,33 +35,34 @@
       "matches": ["__WEB_APP_MATCHES__"],
       "js": ["content/auth-sync.js"],
       "run_at": "document_idle"
-    },
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content/page-metadata.js"],
-      "type": "module",
-      "run_at": "document_idle"
     }
   ],
   "externally_connectable": {
     "matches": ["__WEB_APP_MATCHES__"]
   },
   "action": {
-    "default_popup": "src/popup/index.html",
     "default_icon": {
       "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
   },
   "icons": {
     "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
   "web_accessible_resources": [
     {
-      "resources": ["icons/*", "chunks/*"],
+      "resources": [
+        "src/popup/index.html",
+        "popup.js",
+        "popup.css",
+        "chunks/*",
+        "icons/*"
+      ],
       "matches": ["<all_urls>"]
     }
   ]

@@ -3,11 +3,19 @@ import { restoreSession, getCurrentUser } from "../lib/auth";
 import AuthView from "./views/AuthView";
 import ChatView from "./views/ChatView";
 import SettingsView from "./views/SettingsView";
-import PopupShell from "./components/PopupShell";
+import AppShell from "./components/AppShell";
+import {
+  ShellModeProvider,
+  type ShellMode,
+} from "./lib/shell-mode";
 
 type View = "auth" | "chat" | "settings";
 
-export default function App() {
+interface Props {
+  shellMode: ShellMode;
+}
+
+export default function App({ shellMode }: Props) {
   const [view, setView] = useState<View>("auth");
   const [loading, setLoading] = useState(true);
 
@@ -35,21 +43,26 @@ export default function App() {
     return () => document.removeEventListener("visibilitychange", recheckOnVisible);
   }, []);
 
-  if (loading) {
-    return (
-      <PopupShell>
-        <div className="flex flex-1 items-center justify-center">
-          <div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-        </div>
-      </PopupShell>
-    );
-  }
-
   return (
-    <PopupShell>
-      {view === "auth" && <AuthView onAuth={() => setView("chat")} />}
-      {view === "chat" && <ChatView onSettings={() => setView("settings")} />}
-      {view === "settings" && <SettingsView onBack={() => setView("chat")} />}
-    </PopupShell>
+    <ShellModeProvider mode={shellMode}>
+      <AppShell mode={shellMode}>
+        {loading ? (
+          <div className="flex flex-1 items-center justify-center">
+            <div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : (
+          <>
+            {view === "auth" && <AuthView onAuth={() => setView("chat")} />}
+            {view === "chat" && <ChatView onSettings={() => setView("settings")} />}
+            {view === "settings" && (
+              <SettingsView
+                onBack={() => setView("chat")}
+                onSignedOut={() => setView("auth")}
+              />
+            )}
+          </>
+        )}
+      </AppShell>
+    </ShellModeProvider>
   );
 }

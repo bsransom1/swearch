@@ -1,5 +1,6 @@
 import { useState, useRef, type KeyboardEvent } from "react";
 import { Lightbulb } from "lucide-react";
+import { useShellMode } from "../../lib/shell-mode";
 
 interface Props {
   onSend: (text: string) => void;
@@ -14,6 +15,7 @@ export default function ChatInput({
 }: Props) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isSidebar = useShellMode() === "sidebar";
 
   function handleSubmit() {
     const trimmed = value.trim();
@@ -38,7 +40,7 @@ export default function ChatInput({
   }
 
   return (
-    <div className="mt-auto flex-shrink-0 py-3">
+    <div className={`mt-auto flex-shrink-0 py-3 ${isSidebar ? "px-5" : "px-4"}`}>
       <div
         className="flex w-full items-end gap-2 rounded-full border border-border-subtle bg-surface-0 py-1.5 pl-4 pr-1.5 shadow-tier-2 transition-colors focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/30"
       >
@@ -51,7 +53,9 @@ export default function ChatInput({
           placeholder={placeholder}
           rows={1}
           disabled={disabled}
-          className="min-h-[36px] max-h-[120px] min-w-0 flex-1 resize-none border-0 bg-transparent py-2 text-sm leading-snug text-text-primary placeholder:text-text-tertiary focus:outline-none disabled:opacity-60"
+          className={`${
+            isSidebar ? "min-h-[44px] text-[15px]" : "min-h-[36px] text-sm"
+          } max-h-[120px] min-w-0 flex-1 resize-none border-0 bg-transparent py-2 leading-snug text-text-primary placeholder:text-text-tertiary focus:outline-none disabled:opacity-60`}
         />
         <button
           type="button"

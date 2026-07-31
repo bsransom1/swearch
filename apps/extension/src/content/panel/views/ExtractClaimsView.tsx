@@ -1,17 +1,14 @@
 import { useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, FileOutput } from "lucide-react";
 import LoadingView from "./LoadingView";
 import ErrorView from "./ErrorView";
 import NoClaimsFoundFallback from "./NoClaimsFoundFallback";
+import ActionResultFooter from "../components/ActionResultFooter";
 import CopyButton from "../components/CopyButton";
 import { bridge, type ActiveProject, projectContextParams } from "../lib/bridge";
 import type { ActionPayload } from "../lib/action-bus";
 import {
-  BTN_PRIMARY,
   CARD,
-  ERROR_TEXT,
   SECTION_CONTENT,
-  TIER_3_SUCCESS,
   TRUNCATION_BANNER,
 } from "../../../lib/theme";
 
@@ -21,13 +18,28 @@ interface Props {
   onSwitchAction: (action: "summarize" | "ask" | "relevance") => void;
 }
 
+function claimsAnalysis(claims: string[]) {
+  return {
+    summary: "",
+    methodology: null,
+    findings: claims.map((c, i) => `${i + 1}. ${c}`).join("\n"),
+    limitations: null,
+    relevance: null,
+    sample_size: null,
+    tags: [] as string[],
+  };
+}
+
 export default function ExtractClaimsView({ payload, project, onSwitchAction }: Props) {
   const [claims, setClaims] = useState<string[]>([]);
   const [status, setStatus] = useState<"loading" | "done" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [added, setAdded] = useState(false);
+  const [exported, setExported] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   async function runExtract() {
     setStatus("loading");
@@ -51,32 +63,39 @@ export default function ExtractClaimsView({ payload, project, onSwitchAction }: 
     runExtract();
   }, []);
 
-  async function handleSaveAll() {
-    if (!project || saving || claims.length === 0) return;
-    setSaving(true);
-    setSaveError(null);
+  const saveParams = {
+    selectedText: payload.selectionText,
+    paperTitle: payload.paperTitle,
+    paperUrl: payload.paperUrl,
+    paperDoi: payload.paperDoi,
+    analysis: claimsAnalysis(claims),
+  };
+
+  async function handleAddToProject() {
+    if (!project || adding || exporting || claims.length === 0) return;
+    setAdding(true);
+    setAddError(null);
     try {
-      const fakeAnalysis = {
-        summary: "",
-        methodology: null,
-        findings: claims.map((c, i) => `${i + 1}. ${c}`).join("\n"),
-        limitations: null,
-        relevance: null,
-        sample_size: null,
-        tags: [] as string[],
-      };
-      await bridge.saveHighlight({
-        selectedText: payload.selectionText,
-        paperTitle: payload.paperTitle,
-        paperUrl: payload.paperUrl,
-        paperDoi: payload.paperDoi,
-        analysis: fakeAnalysis,
-      });
-      setSaved(true);
+      await bridge.saveHighlight(saveParams);
+      setAdded(true);
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "Save failed");
+      setAddError(e instanceof Error ? e.message : "Save failed");
     } finally {
-      setSaving(false);
+      setAdding(false);
+    }
+  }
+
+  async function handleExport() {
+    if (!project || adding || exporting || claims.length === 0) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      await bridge.exportHighlightToDoc(saveParams);
+      setExported(true);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -108,33 +127,20 @@ export default function ExtractClaimsView({ payload, project, onSwitchAction }: 
         ))}
       </ol>
 
-      {saveError && (
-        <p className={ERROR_TEXT}>
-          <AlertCircle size={14} strokeWidth={2} className="flex-shrink-0" />
-          <span>{saveError}</span>
-        </p>
-      )}
-
-      <div className="flex items-center gap-2 pt-1 border-t border-border-subtle">
-        <CopyButton text={allClaimsText} label="Copy all" />
-        {project &&
-          (saved ? (
-            <span className={`flex-1 inline-flex items-center justify-center gap-2 text-xs text-success ${TIER_3_SUCCESS}`}>
-              <CheckCircle2 size={14} strokeWidth={2} />
-              Added to project
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={handleSaveAll}
-              disabled={saving}
-              className={`flex-1 ${BTN_PRIMARY}`}
-            >
-              <FileOutput size={14} strokeWidth={2} />
-              {saving ? "Saving…" : "Add all to project"}
-            </button>
-          ))}
-      </div>
+      <ActionResultFooter
+        project={project}
+        copyText={allClaimsText}
+        copyLabel="Copy all"
+        onAddToProject={handleAddToProject}
+        onExport={handleExport}
+        adding={adding}
+        exporting={exporting}
+        added={added}
+        exported={exported}
+        addError={addError}
+        exportError={exportError}
+        addLabel="Add all to project"
+      />
     </div>
   );
 }

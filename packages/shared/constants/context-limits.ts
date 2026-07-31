@@ -12,4 +12,6 @@ export const CONTEXT_LIMITS = {
   maxSavedPapersInPrompt: 10,
   perPaperExcerptChars: 400,
   totalSavedPaperChars: 3000,
+  /** Minimum ms between consecutive brain (find related papers) searches in one session. */
+  relatedPapersSearchCooldownMs: 60_000,
 } as const;

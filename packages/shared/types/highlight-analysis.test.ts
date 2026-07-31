@@ -3,6 +3,7 @@ import {
   extractJsonObject,
   getAnalysisSections,
   parseHighlightAnalysis,
+  resolveProjectHighlightInsight,
 } from "./highlight-analysis";
 
 const SQUIRREL_JSON = `{
@@ -61,5 +62,101 @@ describe("parseHighlightAnalysis", () => {
   it("extracts JSON from noisy text", () => {
     const extracted = extractJsonObject("Here is the result:\n" + SQUIRREL_JSON);
     expect(extracted?.summary).toContain("native red squirrels");
+  });
+});
+
+describe("resolveProjectHighlightInsight", () => {
+  const base = {
+    ai_summary: null,
+    ai_findings: null,
+    ai_methodology: null,
+    ai_limitations: null,
+    ai_relevance: null,
+  };
+
+  it("prefers ai_relevance column over summary and findings", () => {
+    const insight = resolveProjectHighlightInsight({
+      ...base,
+      ai_summary: "Plain summary text.",
+      ai_findings: "A key finding.",
+      ai_relevance: "  Connects to invasion ecology.  ",
+    });
+    expect(insight).toEqual({
+      kind: "relevance",
+      label: "For your project",
+      text: "Connects to invasion ecology.",
+    });
+  });
+
+  it("uses parsed relevance from ai_summary JSON when column is null", () => {
+    const insight = resolveProjectHighlightInsight({
+      ...base,
+      ai_summary: SQUIRREL_JSON,
+    });
+    expect(insight?.kind).toBe("relevance");
+    expect(insight?.label).toBe("For your project");
+    expect(insight?.text).toContain("invasion ecology");
+  });
+
+  it("falls back to findings when no relevance", () => {
+    const insight = resolveProjectHighlightInsight({
+      ...base,
+      ai_findings: "Red squirrels reduced feeding time.",
+      ai_summary: "Summary that should not show.",
+    });
+    expect(insight).toEqual({
+      kind: "findings",
+      label: "Key finding",
+      text: "Red squirrels reduced feeding time.",
+    });
+  });
+
+  it("falls back to methodology then limitations", () => {
+    expect(
+      resolveProjectHighlightInsight({
+        ...base,
+        ai_methodology: "Field experiment with video.",
+      })
+    ).toMatchObject({ kind: "methodology", label: "Methodology" });
+
+    expect(
+      resolveProjectHighlightInsight({
+        ...base,
+        ai_limitations: "Small sample at four sites.",
+      })
+    ).toMatchObject({ kind: "limitations", label: "Limitation" });
+  });
+
+  it("uses summary as last resort for legacy plain-text rows", () => {
+    const insight = resolveProjectHighlightInsight({
+      ...base,
+      ai_summary: "Legacy plain summary only.",
+    });
+    expect(insight).toEqual({
+      kind: "summary",
+      label: "Summary",
+      text: "Legacy plain summary only.",
+    });
+  });
+
+  it("returns null when all fields are empty", () => {
+    expect(resolveProjectHighlightInsight(base)).toBeNull();
+    expect(
+      resolveProjectHighlightInsight({
+        ...base,
+        ai_summary: "   ",
+        ai_relevance: "",
+      })
+    ).toBeNull();
+  });
+
+  it("does not return findings when relevance is present", () => {
+    const insight = resolveProjectHighlightInsight({
+      ...base,
+      ai_relevance: "Project tie-in.",
+      ai_findings: "Should be ignored.",
+    });
+    expect(insight?.kind).toBe("relevance");
+    expect(insight?.text).not.toContain("Should be ignored");
   });
 });

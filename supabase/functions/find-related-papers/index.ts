@@ -9,6 +9,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const MAX_DISCOVERY_PAPERS = 100;
+const FALLBACK_SEARCH_THRESHOLD = 10;
+
 interface PageContext {
   url: string;
   title: string | null;
@@ -23,11 +26,10 @@ interface DiscoveredPaper {
   title: string;
   authors: string[];
   year: number | null;
-  abstract: string | null;
+  abstract: null;
   url: string;
   doi: string | null;
   citationCount: number | null;
-  relevanceReason?: string;
 }
 
 interface OpenAlexWork {
@@ -35,7 +37,6 @@ interface OpenAlexWork {
   display_name: string;
   publication_year: number | null;
   cited_by_count: number | null;
-  abstract_inverted_index?: Record<string, number[]> | null;
   authorships?: { author?: { display_name?: string } }[];
   doi?: string | null;
   ids?: { doi?: string; openalex?: string };
@@ -49,19 +50,6 @@ function openAlexHeaders(): HeadersInit {
     "";
   if (key) headers.Authorization = `Bearer ${key}`;
   return headers;
-}
-
-function reconstructAbstract(
-  inverted: Record<string, number[]> | null | undefined
-): string | null {
-  if (!inverted) return null;
-  const tokens: [number, string][] = [];
-  for (const [word, positions] of Object.entries(inverted)) {
-    for (const pos of positions) tokens.push([pos, word]);
-  }
-  if (tokens.length === 0) return null;
-  tokens.sort((a, b) => a[0] - b[0]);
-  return tokens.map((t) => t[1]).join(" ");
 }
 
 function workUrl(work: OpenAlexWork): string {
@@ -88,30 +76,23 @@ function mapWork(work: OpenAlexWork): DiscoveredPaper {
         ?.map((a) => a.author?.display_name)
         .filter((n): n is string => !!n) ?? [],
     year: work.publication_year,
-    abstract: reconstructAbstract(work.abstract_inverted_index),
+    abstract: null,
     url: workUrl(work),
     doi: workDoi(work),
     citationCount: work.cited_by_count,
   };
 }
 
-async function fetchOpenAlexWorkByDoi(doi: string): Promise<OpenAlexWork | null> {
-  const normalized = doi.replace(/^https?:\/\/doi\.org\//i, "");
-  const res = await fetch(
-    `https://api.openalex.org/works/https://doi.org/${encodeURIComponent(normalized)}`,
-    { headers: openAlexHeaders() }
-  );
-  if (!res.ok) return null;
-  return (await res.json()) as OpenAlexWork;
-}
-
-async function searchOpenAlex(query: string, perPage = 8): Promise<OpenAlexWork[]> {
+async function searchOpenAlex(
+  query: string,
+  perPage = MAX_DISCOVERY_PAPERS
+): Promise<OpenAlexWork[]> {
   const url = new URL("https://api.openalex.org/works");
   url.searchParams.set("search", query);
   url.searchParams.set("per_page", String(perPage));
   url.searchParams.set(
     "select",
-    "id,display_name,publication_year,cited_by_count,abstract_inverted_index,authorships,doi,ids"
+    "id,display_name,publication_year,cited_by_count,authorships,doi,ids"
   );
 
   const res = await fetch(url.toString(), { headers: openAlexHeaders() });
@@ -122,19 +103,29 @@ async function searchOpenAlex(query: string, perPage = 8): Promise<OpenAlexWork[
   return (data.results ?? []) as OpenAlexWork[];
 }
 
-function dedupePapers(papers: DiscoveredPaper[], excludeDoi?: string | null): DiscoveredPaper[] {
+function normalizeDoi(doi: string | null | undefined): string | null {
+  if (!doi) return null;
+  return doi.replace(/^https?:\/\/doi\.org\//i, "");
+}
+
+function dedupePapers(
+  papers: DiscoveredPaper[],
+  excludeDoi?: string | null,
+  limit = MAX_DISCOVERY_PAPERS
+): DiscoveredPaper[] {
+  const exclude = normalizeDoi(excludeDoi);
   const seen = new Set<string>();
   const result: DiscoveredPaper[] = [];
+
   for (const p of papers) {
     const key = p.openalexId || p.doi || p.url;
     if (!key || seen.has(key)) continue;
-    if (excludeDoi && p.doi && p.doi === excludeDoi.replace(/^https?:\/\/doi\.org\//i, "")) {
-      continue;
-    }
+    if (exclude && p.doi && p.doi === exclude) continue;
     seen.add(key);
     result.push(p);
-    if (result.length >= 5) break;
+    if (result.length >= limit) break;
   }
+
   return result;
 }
 
@@ -190,73 +181,23 @@ Deno.serve(async (req) => {
       searchQuery = pageContext.title ?? "academic research";
     }
 
-    const candidates: OpenAlexWork[] = [];
-
-    if (pageContext.doi) {
-      const current = await fetchOpenAlexWorkByDoi(pageContext.doi);
-      if (current) candidates.push(current);
-    }
-
-    const searchResults = await searchOpenAlex(searchQuery, 10);
-    candidates.push(...searchResults);
-
-    const excludeDoi = pageContext.doi;
+    const searchResults = await searchOpenAlex(searchQuery, MAX_DISCOVERY_PAPERS);
     let papers = dedupePapers(
-      candidates.map(mapWork).filter((p) => p.title),
-      excludeDoi
+      searchResults.map(mapWork).filter((p) => p.title),
+      pageContext.doi
     );
 
-    if (papers.length < 3 && pageContext.title) {
-      const fallback = await searchOpenAlex(pageContext.title, 8);
+    if (papers.length < FALLBACK_SEARCH_THRESHOLD && pageContext.title) {
+      const fallback = await searchOpenAlex(pageContext.title, MAX_DISCOVERY_PAPERS);
       papers = dedupePapers(
-        [...papers, ...fallback.map(mapWork)],
-        excludeDoi
+        [...papers, ...fallback.map(mapWork).filter((p) => p.title)],
+        pageContext.doi
       );
     }
 
-    papers = papers.slice(0, 5);
+    const total = papers.length;
 
-    if (papers.length > 0) {
-      const paperList = papers
-        .map(
-          (p, i) =>
-            `${i + 1}. "${p.title}" (${p.year ?? "n/a"}) — ${(p.abstract ?? "").slice(0, 200)}`
-        )
-        .join("\n");
-
-      const relevanceResponse = await client.messages.create({
-        model: "claude-sonnet-4-6",
-        max_tokens: 600,
-        system: `For each numbered paper, write ONE short sentence (max 25 words) explaining why it is relevant to the user's current page and project. Return JSON array of strings in order, same length as input. Example: ["Reason 1", "Reason 2"]`,
-        messages: [
-          {
-            role: "user",
-            content: `Current page: "${pageContext.title ?? pageContext.url}"\n\nProject:\n${projectSection.slice(0, 1500)}\n\nPapers:\n${paperList}`,
-          },
-        ],
-      });
-
-      const raw =
-        relevanceResponse.content[0].type === "text"
-          ? relevanceResponse.content[0].text.trim()
-          : "[]";
-
-      try {
-        const jsonMatch = raw.match(/\[[\s\S]*\]/);
-        const reasons = JSON.parse(jsonMatch?.[0] ?? "[]") as string[];
-        papers = papers.map((p, i) => ({
-          ...p,
-          relevanceReason: reasons[i]?.trim() || "Related to your research topic.",
-        }));
-      } catch {
-        papers = papers.map((p) => ({
-          ...p,
-          relevanceReason: "Related to your research topic.",
-        }));
-      }
-    }
-
-    return new Response(JSON.stringify({ data: { papers, searchQuery } }), {
+    return new Response(JSON.stringify({ data: { papers, searchQuery, total } }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
